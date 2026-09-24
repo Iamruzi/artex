@@ -151,7 +151,9 @@ function collapseDigestGraph(nodes: TaskNode[], edges: Edge[]): { viewNodes: Tas
   );
   const remap = (id: string) => memberToDigest.get(id) ?? id;
   const seen = new Set<string>();
-  const viewEdges: Edge[] = [];
+  const rewired: Edge[] = [];
+  // src+dst of every rewired yields edge, so the inverse derived_from can be dropped.
+  const produced = new Set<string>();
   for (const e of edges) {
     if (e.rel === "covers") continue;
     const src = remap(e.src);
@@ -160,8 +162,18 @@ function collapseDigestGraph(nodes: TaskNode[], edges: Edge[]): { viewNodes: Tas
     const key = `${src}\u0000${e.rel}\u0000${dst}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    viewEdges.push(src === e.src && dst === e.dst ? e : { ...e, src, dst });
+    if (e.rel === "yields") produced.add(`${src} ${dst}`);
+    rewired.push(src === e.src && dst === e.dst ? e : { ...e, src, dst });
   }
+  // yields(A→B) and derived_from(B→A) are inverse relations: a finding is
+  // yielded by one intent but derived_from other intents, so the raw graph has
+  // no 2-cycle. Folding those distinct intents into one digest collapses both
+  // onto the digest↔member pair, leaving a redundant reverse edge the layered
+  // layout draws as an overlapping back-edge. Drop each derived_from whose
+  // reverse yields exists, keeping the production direction (→member).
+  const viewEdges = rewired.filter(
+    (e) => !(e.rel === "derived_from" && produced.has(`${e.dst} ${e.src}`)),
+  );
   return { viewNodes, viewEdges };
 }
 
