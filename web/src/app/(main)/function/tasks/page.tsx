@@ -1196,7 +1196,7 @@ const TaskRow = React.memo(function TaskRow({
           {taskIsPinned(task) && <PinIcon className="text-primary size-4 shrink-0" aria-label="已置顶" />}
         </div>
       </TableCell>
-      <TableCell className="text-muted-foreground max-w-xs">
+      <TableCell className="text-muted-foreground max-w-40">
         <Link
           href={`/function/tasks/detail?id=${encodeURIComponent(task.id)}`}
           className="block truncate rounded-sm hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -1205,7 +1205,9 @@ const TaskRow = React.memo(function TaskRow({
           {task.description}
         </Link>
       </TableCell>
-      <TableCell className="text-muted-foreground max-w-xs truncate">{task.goal}</TableCell>
+      <TableCell className="text-muted-foreground max-w-40 truncate" title={task.goal}>
+        {task.goal}
+      </TableCell>
       <TableCell>
         <StatusBadge domain="task" value={task.status} dot />
       </TableCell>
