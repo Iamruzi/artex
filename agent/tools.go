@@ -460,11 +460,9 @@ func (t *ToolSet) graphOverviewData() map[string]any {
 	// via node_detail(id).
 	vulnNodes, _ := t.ts.ListByKind(db.KindFinding, 1000)
 	factNodes, _ := t.ts.ListByKind(db.KindFact, 1000) // newest first
-	// out["findings"] 在下方 finding_list 组装时统计:只计 triage 已确认(confirmed)
-	// 的漏洞(C4),pending 占位与误报不算"已突破";但全部仍进 finding_list 供去重。
 	out["facts"] = len(factNodes) // 探索事实/结论数（含否定结论）
-	// findings 是任务里最高价值的产物、单任务通常也不多 → 直接全量带进概览（不像 facts 那样
-	// 只给最近窗口），让 planner 每轮判目标时一眼看全所有确认漏洞，无需再调 list_findings。
+	// findings 是任务里最高价值的产物 → 概览带最新一窗（≤10 条，vulnNodes 已按 id 降序即最新在前），
+	// 让 planner 每轮判目标时一眼看到最近确认的漏洞；全量/更早的用 list_findings 取。
 	// 每条只留 {id, summary, status?, from_intent?}：status 是 triage 状态(pending=待验证,C4)；
 	// from_intent 是产生本漏洞的意图。evidence/assets/vulnclass/severity/state 等仍可用
 	// list_findings / node_detail(id) 取。
@@ -472,9 +470,26 @@ func (t *ToolSet) graphOverviewData() map[string]any {
 	if t.as != nil && t.taskID > 0 {
 		findingMeta, _ = t.as.FindingMetaByNodeID(t.taskID)
 	}
-	findingList := make([]map[string]any, 0, len(vulnNodes))
+	// C4: findings_total 只计 triage 已确认(confirmed) 的漏洞,pending 占位与误报不算
+	// "已突破";它们仍进 finding_list(最新一窗)参与"同方向已有进展"的去重判断。
+	// 列表有 10 条上限,计数必须在截断之外对全量 vulnNodes 单独统计。
 	confirmedFindings := 0
 	for _, n := range vulnNodes {
+		status := ""
+		if meta, ok := findingMeta[n.ID]; ok {
+			status = meta.Status
+		}
+		if findingMeta == nil || provenFinding(status) {
+			confirmedFindings++
+		}
+	}
+	out["findings_total"] = confirmedFindings // 确认漏洞总数（目标判定看它）；明细见 finding_list（最新一窗）
+	const findingListCap = 10
+	findingList := make([]map[string]any, 0, findingListCap)
+	for _, n := range vulnNodes {
+		if len(findingList) >= findingListCap {
+			break
+		}
 		var fp map[string]any
 		_ = json.Unmarshal(n.Payload, &fp)
 		m := map[string]any{"id": n.ID, "summary": fp["summary"]}
@@ -485,16 +500,12 @@ func (t *ToolSet) graphOverviewData() map[string]any {
 			status = meta.Status
 			m["status"] = status
 		}
-		if findingMeta == nil || provenFinding(status) {
-			confirmedFindings++
-		}
 		if from := factFrom[n.ID]; from > 0 {
 			m["from_intent"] = from // 本漏洞由哪个意图产生
 		}
 		findingList = append(findingList, m)
 	}
 	out["finding_list"] = findingList
-	out["findings"] = confirmedFindings // 确认漏洞数（目标判定看它；C4: 不含 pending/误报）
 	// 批 6 L1:疑似蜜罐资产清单(静态签名命中,score>0,上限 20 条,评分降序)。
 	// 单信号只降级不封锁——处置纪律在系统提示固定尾(plannerHoneypotRules)。
 	if t.as != nil && t.taskID > 0 {
