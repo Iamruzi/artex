@@ -195,7 +195,7 @@ func (s *Store) Record(ctx context.Context, in db.RecordFindingInput, refs []db.
 		if err != nil {
 			return err
 		}
-		out, err = db.RecordFindingTx(tx, in, prepared)
+		out, err = db.RecordFindingTx(ctx, tx, in, prepared)
 		return err
 	})
 	// C2:合并成功后触发对该 finding 的增量重验(事务已提交,回调失败不影响主流程)。
