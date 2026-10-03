@@ -164,12 +164,20 @@ async function httpInner<T>(path: string, init: RequestInit | undefined, retried
   return r.json();
 }
 
-// sseUrl builds a URL for Server-Sent Events streams. SSE must NOT go through the
-// Next.js dev `/api` rewrite: that proxy buffers the streamed response, so event
-// frames never reach the browser (the EventSource opens but receives 0 messages).
-// We therefore connect straight to the Go backend, whose CORS is open. Override
-// with NEXT_PUBLIC_SSE_BASE; set it to "" to force same-origin (e.g. behind a
-// production reverse proxy that flushes SSE correctly).
+// sseUrl builds a URL for Server-Sent Events streams.
+//
+// Production (static export / Docker): the Go backend serves the web UI *and* the
+// SSE streams on the same port, so we default to a same-origin (relative) URL.
+// This is what makes reverse-proxy deploys work: a page loaded from
+// https://<domain>/ connects to https://<domain>/api/..., which the proxy forwards
+// to the backend — no need to expose :8787 publicly.
+//
+// Dev (next dev): SSE must NOT go through the Next.js `/api` rewrite — that proxy
+// buffers the streamed response, so event frames never reach the browser (the
+// EventSource opens but receives 0 messages). So in dev only we connect straight
+// to the Go backend on :8787, whose CORS is open.
+//
+// Override either default with NEXT_PUBLIC_SSE_BASE (set it to "" to force same-origin).
 // 凭据(F6):先 POST /api/sse-ticket(走 /api 代理,带 Authorization 头)换 60s
 // 一次性 ticket 再拼 ?ticket=——access token 不再出现在 URL/访问日志里。ticket
 // 用后即焚,所以 EventSource 自带的自动重连会在第二次握手时 401;调用点必须在
@@ -200,7 +208,9 @@ function mockReport(_task?: string): string {
 export async function sseUrl(path: string): Promise<string> {
   const base =
     process.env.NEXT_PUBLIC_SSE_BASE ??
-    (typeof window !== "undefined" ? `${window.location.protocol}//${window.location.hostname}:8787` : "");
+    (process.env.NODE_ENV !== "production" && typeof window !== "undefined"
+      ? `${window.location.protocol}//${window.location.hostname}:8787`
+      : "");
   const { ticket } = await post<{ ticket: string }>("/sse-ticket");
   const sep = path.includes("?") ? "&" : "?";
   return `${base}${path}${sep}ticket=${encodeURIComponent(ticket)}`;
