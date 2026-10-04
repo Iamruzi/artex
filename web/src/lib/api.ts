@@ -56,6 +56,7 @@ import type {
   InterceptRule,
   IntranetTopology,
   JudgeConfig,
+  JudgeUsage,
   LLMPoolStatus,
   LLMProfile,
   LLMRecordDetail,
@@ -1182,6 +1183,7 @@ export const api = {
   // ---- intercept LLM judge (模型兜底审批,全局配置) ----
   interceptGetJudgeConfig: () => get<JudgeConfig>("/intercept/judge"),
   interceptSetJudgeConfig: (cfg: JudgeConfig) => put<{ ok: boolean }>("/intercept/judge", cfg),
+  interceptJudgeUsage: (days = 30) => get<JudgeUsage>(`/intercept/judge/usage?days=${days}`),
 
   // ---- guard auto-allow (一键放行,带时限的 ask 自动批准) ----
   getAutoAllow: () => get<AutoAllowState>("/guard/auto-allow"),

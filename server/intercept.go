@@ -15,6 +15,7 @@ import (
 	"github.com/Autumn-27/artex/db"
 	"github.com/Autumn-27/artex/guard"
 	"github.com/Autumn-27/artex/intercept"
+	"github.com/Autumn-27/artex/llmrec"
 	"github.com/Autumn-27/norma/llm"
 )
 
@@ -80,6 +81,11 @@ func scopeRulesFromRows(rows []db.TaskScope) []guard.ScopeRule {
 	return out
 }
 
+// judgeWorkerLane is the usage-ledger "worker" label for intercept fallback-judge
+// calls, so judge spend can be queried apart from the worker/planner/main lanes.
+// (上游此处还有 chatGuard;本分支由带 RoE+Egress 的 agentGuard 统一替代,无人调用,不引入。)
+const judgeWorkerLane = "judge"
+
 // wireInterceptReviewer installs the LLM fallback judge into the interceptor. The
 // judge runs only on tool calls that matched no rule (see intercept.Judge). It
 // resolves the configured judge profile (0 → active/default), builds a provider,
@@ -98,6 +104,9 @@ func (s *Server) wireInterceptReviewer() {
 		if !ok {
 			return intercept.Decision{ProfileID: profileID}, fmt.Errorf("裁判模型 profile %d 不可用", profileID)
 		}
+		// Tag this call's usage as the "judge" lane so the config page can report
+		// how much the fallback approval has spent, separate from model profiles.
+		ctx = llmrec.WithWorker(ctx, judgeWorkerLane)
 		text, err := reviewCompletion(ctx, prov, prompt, input)
 		if err != nil {
 			return intercept.Decision{ProfileID: profileID}, err
@@ -532,6 +541,23 @@ func (s *Server) interceptSetJudgeConfig(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	writeJSON(w, 200, map[string]any{"ok": true})
+}
+
+// interceptJudgeUsage returns the fallback judge's cumulative token spend plus a
+// recent daily series, for the config page. ?days bounds the daily series (default 30).
+func (s *Server) interceptJudgeUsage(w http.ResponseWriter, r *http.Request) {
+	pg := s.m.PG()
+	if pg == nil {
+		writeJSON(w, 200, db.JudgeUsage{Daily: []db.JudgeDayUsage{}})
+		return
+	}
+	days := atoiDefault(r.URL.Query().Get("days"), 30)
+	usage, err := pg.JudgeUsageStats(days)
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	writeJSON(w, 200, usage)
 }
 
 // --- helpers ---
