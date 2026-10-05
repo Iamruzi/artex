@@ -1280,7 +1280,6 @@ ALTER TABLE side_question_sessions ADD COLUMN IF NOT EXISTS memory JSONB NOT NUL
 ALTER TABLE side_question_requests ADD COLUMN IF NOT EXISTS context_info JSONB NOT NULL DEFAULT '{}';
 
 -- =====================================================================
-<<<<<<< HEAD
 -- J. 立足点会话(内网渗透期 1a,见 INTRANET-PIVOT-DESIGN.md §4.2)
 -- =====================================================================
 -- webshell/ssh/reverse 立足点的一等管理。secret 是连接参数 JSON,AES-GCM
