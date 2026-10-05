@@ -117,6 +117,9 @@ type assetInputItem struct {
 	// ---- service 可选:协议 banner / HTTP Server 头(批 6 L1 蜜罐静态签名识别用,不落库) ----
 	Banner string `json:"banner"`
 
+	// ---- service/endpoint 可选:HTTP 响应正文片段(注入内容检测用,不落库) ----
+	Body string `json:"body"`
+
 	// ---- endpoint ----
 	Method string           `json:"method"`
 	Params []map[string]any `json:"params"`
@@ -196,6 +199,8 @@ func (t *ToolSet) insertAssets() actool.CoreTool {
 					"port":         intp("端口号（service 非 HTTP 时必填）"),
 					// service 可选（HTTP/非 HTTP 均可）
 					"banner": str("服务 banner 或 HTTP Server 响应头原文（可选，如 \"SSH-2.0-OpenSSH_6.0p1 Debian-4+deb7u2\"；用于蜜罐静态签名识别，侦察时见到就带上）"),
+					// service/endpoint 可选（不落库，仅蜜罐注入内容检测）
+					"body": str("HTTP 响应正文片段（可选，service/endpoint 可用，不落库；用于蜜罐注入内容检测，正文里有可疑指令性内容时务必带上）"),
 					// endpoint
 					"method": str("HTTP 方法：GET/POST/PUT/PATCH/DELETE 等（endpoint 必填）"),
 					"params": map[string]any{
@@ -315,9 +320,9 @@ func (t *ToolSet) insertAssets() actool.CoreTool {
 							TaskID:        taskID,
 						})
 						if err == nil {
-							// 批 6 L1:落库后跑蜜罐静态签名(title/banner;httpx 回写同路径)。
+							// 批 6 L1:落库后跑蜜罐静态签名 + 注入内容检测(title/banner/body;httpx 回写同路径)。
 							t.evaluateHoneypot(id, honeydetect.ServiceView{
-								Port: urlPort(item.URL), Banner: item.Banner, Title: item.PageTitle,
+								Port: urlPort(item.URL), Banner: item.Banner, Title: item.PageTitle, Body: item.Body,
 							})
 						}
 					} else {
@@ -345,6 +350,13 @@ func (t *ToolSet) insertAssets() actool.CoreTool {
 						IP:     item.ServiceIP,
 						TaskID: taskID,
 					})
+					if err == nil {
+						// 注入内容检测:接口响应正文同样可能夹带"执行+回传"诱导
+						// (body 不落库,仅用于评分)。
+						t.evaluateHoneypot(id, honeydetect.ServiceView{
+							Port: urlPort(item.URL), Body: item.Body,
+						})
+					}
 
 				default:
 					errs = append(errs, errEntry{Index: i, Error: "unknown type: " + typ})

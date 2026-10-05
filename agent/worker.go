@@ -369,9 +369,9 @@ func workerSystem(proxyAddr, caCert, dataDir, runDir string, intranet bool) stri
 	// caCert is present only when the recording MITM is on, which is exactly when
 	// the traffic_* tools are registered — so it gates the traffic-tool note.
 	// Optional finding guidance is added for every role after tool resolution.
-	// workerAntiTrapRules(批 5 B1 反 AI 蜜罐红线)对内外网 worker 一律追加,
-	// 内网红线尾仍只在 intranet 时生效。
-	return body + workerTrafficBlock(caCert != "") + workerArtifactSpec(runDir) + untrustedDataRule + evidenceFirstRule + toolchainRule + chainskel.WorkerMetaRules + workerAntiTrapRules + tail
+	// antiTrapRules(批 5 B1 反 AI 蜜罐红线,复测批起全角色注入)对内外网 worker
+	// 一律追加,内网红线尾仍只在 intranet 时生效。
+	return body + workerTrafficBlock(caCert != "") + workerArtifactSpec(runDir) + untrustedDataRule + evidenceFirstRule + toolchainRule + chainskel.WorkerMetaRules + antiTrapRules + tail
 }
 
 // renderIntentTask formats the claimed intent for the worker's launch USER message:

@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 // writeSigs 在临时目录落一份签名文件并返回路径。
@@ -19,8 +20,7 @@ func writeSigs(t *testing.T, body string) string {
 const testSigs = `{"signatures":[
   {"name":"cowrie_default_ssh_banner","product":"Cowrie","confidence":0.99,"source":"t","match":{"banner_substr":"OpenSSH_6.0p1 Debian-4+deb7u2"}},
   {"name":"hfish_default_web_xjs","product":"HFish","confidence":0.85,"source":"t","match":{"port":8080,"http_body_substr":"x.js"}},
-  {"name":"dionaea_default_cert_subject","product":"Dionaea","confidence":0.95,"source":"t","match":{"cert_subject_substr":"Nepenthes Development Team"}},
-  {"name":"empty_match_never_hits","product":"X","confidence":1.0,"source":"t","match":{}}
+  {"name":"dionaea_default_cert_subject","product":"Dionaea","confidence":0.95,"source":"t","match":{"cert_subject_substr":"Nepenthes Development Team"}}
 ]}`
 
 func TestEvaluateHitsHighestConfidence(t *testing.T) {
@@ -76,11 +76,13 @@ func TestHotReloadByMtime(t *testing.T) {
 	if score, _ := e.Evaluate(ServiceView{Banner: "OpenSSH_6.0p1 Debian-4+deb7u2"}); score != 0 {
 		t.Fatalf("empty sigs should score 0, got %v", score)
 	}
-	// 重写文件(睡眠确保 mtime 变化可观测),无需重启即应热更新。
-	if err := os.Chtimes(p, mustStat(t, p).ModTime(), mustStat(t, p).ModTime()); err != nil {
+	// 重写文件并确定性递增 mtime(光写文件在 Windows 上 mtime 可能落在同一计时
+	// 精度内而不触发热更新;拨到未来即可,比"依赖写时间前进"稳定),无需重启即应热更新。
+	if err := os.WriteFile(p, []byte(testSigs), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(p, []byte(testSigs), 0o644); err != nil {
+	mt := mustStat(t, p).ModTime().Add(2 * time.Second)
+	if err := os.Chtimes(p, mt, mt); err != nil {
 		t.Fatal(err)
 	}
 	if score, _ := e.Evaluate(ServiceView{Banner: "OpenSSH_6.0p1 Debian-4+deb7u2"}); score != 0.99 {
@@ -99,9 +101,12 @@ func mustStat(t *testing.T, p string) os.FileInfo {
 
 // TestBundledSignaturesLoad 仓库内嵌签名库必须可解析、且每条都有来源与条件。
 func TestBundledSignaturesLoad(t *testing.T) {
-	sigs := parseSignatures(embeddedSignatures)
+	sigs, err := parseSignaturesStrict(embeddedSignatures)
+	if err != nil {
+		t.Fatalf("内嵌签名库严格校验失败: %v", err)
+	}
 	if len(sigs) == 0 {
-		t.Fatal("内嵌签名库为空或解析失败")
+		t.Fatal("内嵌签名库为空")
 	}
 	for _, s := range sigs {
 		if s.Name == "" || s.Product == "" || s.Source == "" {

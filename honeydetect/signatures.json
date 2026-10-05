@@ -1,5 +1,5 @@
 {
-  "_comment": "批 6 L1 蜜罐静态签名库(HONEYPOT-DETECTION-DESIGN.md 二·L1)。签名只收录有公开来源的,source 字段写明出处;热更新:改文件即生效(按 mtime 重载)。",
+  "_comment": "批 6 L1 蜜罐静态签名库(HONEYPOT-DETECTION-DESIGN.md 二·L1)。签名只收录有公开来源的,source 字段写明出处;热更新:改文件即生效(按 mtime 重载);解析/校验失败整体回退上一份好签名(没有则内嵌库)并记日志。match 条件操作符:*_substr=大小写不敏感子串(值 \"*\" 表示该字段存在即命中);*_not_substr=含即不命中(值 \"*\" 表示存在即不命中);列出的条件全部命中才算命中;无条件签名会被校验拒绝。",
   "signatures": [
     {
       "name": "cowrie_default_ssh_banner",
