@@ -14,7 +14,7 @@ AI 自主渗透测试系统 · 二开版（Go 后端 + Next.js 前端 + PostgreS
 | **内网作战** | webshell 加密会话管理（PHP/JSP)、反弹 shell(penelope 受管）、立足点被动侦察（`session_recon`)、多层代理隧道（suo5/chisel 自动选型、任务级 MITM 热切换）、内网拓扑图（按任务过滤）、凭据库 |
 | **阶段编排** | 待授权网段审批（侦察发现 scope 外网段 → 人工批准扩 scope)、外网→内网任务移交（handoff 模板建子任务）、内网 worker 提示词变体（有立足点自动切换） |
 | **安全与反测绘** | 伪装门控（未过门控一律返回逐字节固定 nginx 欢迎页，随机入口路径）、一键放行（2/4/8h 时限审批豁免，deny 不豁免）、RoE 范围强制三态（off/warn/strict) |
-| **蜜罐识别与反 AI 蜜罐防护** | 静态签名识别层（`honeydetect/`，内嵌签名库覆盖 Cowrie/OpenCanary/Kippo/Glastopf/HFish/Dionaea)、资产蜜罐评分与 UI 徽标、planner 处置纪律；针对"以 AI 攻击代理为猎物"的新型陷阱：worker 红线（永不自证）、出口敏感信息拦截、tarpit 抓取熔断、UA 池。设计见 `HONEYPOT-DETECTION-DESIGN.md` |
+| **蜜罐识别与反 AI 蜜罐防护** | 静态签名识别层（`honeydetect/`，内嵌签名库覆盖 Cowrie/OpenCanary/Kippo/Glastopf/HFish/Dionaea)+ 内容语义注入检测（采集命令+回传话术加权评分）、资产蜜罐评分与 UI 徽标、planner 处置纪律；针对"以 AI 攻击代理为猎物"的新型陷阱：全角色红线（永不自证/采集命令不执行/不为执行而下载/陷阱端点零交互）、出口敏感信息拦截、tarpit 抓取熔断、UA 池。**实测：对 AgentMirror 的 12 个反 AI 诱导场景，防线全部守住（12/12)**。设计见 `HONEYPOT-DETECTION-DESIGN.md` |
 | **chains 场景化** | 九类反问思维链骨架按意图自动注入、按漏洞类别的反证判据（误报写 fact、真漏洞才落图）、类别化转向提示 |
 | **武器库与部署链** | 17 项外部工具钉版清单（`packaging/tools-manifest.json`，启动自检 sha256)、`artex doctor` 部署预检、systemd unit |
 | **稳定性** | 任务 deadline 冻结感知（宿主机睡眠不烧任务）、LLM 调用硬墙钟、会话探活与启动卫生 |
@@ -22,7 +22,7 @@ AI 自主渗透测试系统 · 二开版（Go 后端 + Next.js 前端 + PostgreS
 | **通知与运营** | 漏洞发现推送钉钉/飞书/企微等六渠道、裁判 token 单独计量、资产拦截规则（全局黑名单+任务级）、流量检索/筛选/排序与索引压实 |
 | **跟进上游** | 已吸收上游 v0.3.11-v0.3.14 精选修复（冷压缩接线、裁判协议收紧等）+ norma SDK 升 v0.4.3（全局工具输出截断） |
 
-详细二开说明见 `README-FORK.md`；分布式演进评估见 `FUTURE.md`。
+详细二开说明见 `README-FORK.md`。
 
 ---
 
@@ -206,7 +206,7 @@ ARTEX 是一套 **LLM 多 agent 驱动的自主渗透系统**:Go 单体后端（
 | 文档 | 内容 |
 | --- | --- |
 | `README-FORK.md` | 二开完整说明（与上游关系、新增能力清单、验证情况） |
-| `FUTURE.md` | 分布式改造全面评估（server 大脑 + 远程 node 执行） |
+| `HONEYPOT-DETECTION-DESIGN.md` | 蜜罐识别模块调研与设计（含反 AI 代理蜜罐） |
 | `HONEYPOT-DETECTION-DESIGN.md` | 蜜罐识别模块调研与设计（含反 AI 代理蜜罐） |
 | `INTRANET-PIVOT-DESIGN.md` | 内网作战子系统设计 |
 | `CHAINS-INTEGRATION-DESIGN.md` | chains 场景化激活设计 |

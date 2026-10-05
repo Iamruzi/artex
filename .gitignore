@@ -58,3 +58,4 @@ Thumbs.db
 /bench/
 /Dockerfile.bench
 /Dockerfile.bench.v2
+FUTURE.md
