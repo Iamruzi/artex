@@ -63,7 +63,7 @@ func TestLDPreloadLibELF(t *testing.T) {
 // TestPatchLDPreloadPath:路径槽改写——写入路径、NUL 结尾、余量清零、异常输入。
 func TestPatchLDPreloadPath(t *testing.T) {
 	blob := LDPreloadLib()
-	const mark = "/tmp/.artex_deadbeef.mark"
+	const mark = "/tmp/.deadbeef.mark"
 	out, err := patchLDPreloadPath(blob, mark)
 	if err != nil {
 		t.Fatalf("patch: %v", err)

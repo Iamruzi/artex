@@ -5,6 +5,7 @@ package session
 // 高特征形态)、PHP 模板 php -l 语法自检(环境无 php 则 skip)。
 
 import (
+	"encoding/base64"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -140,3 +141,40 @@ func TestGenerateShellBadLang(t *testing.T) {
 		t.Fatal("aspx 加密马未实现，应报错")
 	}
 }
+
+// TestGenerateShellNoProductFingerprint 批 7 P0-4:马体不含任何产品名字样
+// (大小写不敏感);CBC 域分隔串随密钥派生,两份马体不同且与驱动侧
+// encDomains 同一算法(平台侧仅凭密钥即可复现)。
+func TestGenerateShellNoProductFingerprint(t *testing.T) {
+	for _, lang := range []string{"php", "jsp"} {
+		for _, obf := range []bool{false, true} {
+			gen, err := GenerateShell(lang, obf, "")
+			if err != nil {
+				t.Fatalf("GenerateShell(%s, obf=%v): %v", lang, obf, err)
+			}
+			if strings.Contains(strings.ToLower(gen.Content), "artex") {
+				t.Fatalf("%s(obf=%v)马体含产品名字样", lang, obf)
+			}
+		}
+	}
+	a, err := GenerateShell("php", false, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := GenerateShell("php", false, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ka, _ := base64.StdEncoding.DecodeString(a.KeyB64)
+	kb, _ := base64.StdEncoding.DecodeString(b.KeyB64)
+	ea, ma := encDomains(ka)
+	eb, mb := encDomains(kb)
+	if ea == eb || ma == mb {
+		t.Fatal("不同密钥派生的域分隔串应不同")
+	}
+	// 非混淆档:派生域串以整串字面量嵌进马体(与驱动侧共享同一值)。
+	if !strings.Contains(a.Content, "'"+ma+"'") || !strings.Contains(a.Content, "'"+ea+"'") {
+		t.Fatal("PHP 马体未嵌入派生域分隔串")
+	}
+}
+

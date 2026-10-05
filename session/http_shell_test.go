@@ -408,10 +408,13 @@ func TestPHPQuoteEvasionScriptDrop(t *testing.T) {
 	if strings.Contains(outer, "'it works'") {
 		t.Fatalf("复杂命令不应内联（引号会被多层 shell 撕碎）: %q", outer)
 	}
-	if !strings.Contains(outer, "base64 -d > /tmp/.artex_") || !strings.Contains(outer, "rm -f /tmp/.artex_") {
+	if !strings.Contains(outer, "base64 -d > /tmp/.") || !strings.Contains(outer, "rm -f /tmp/.") {
 		t.Fatalf("应为 base64 落盘 + sh 执行 + 清理: %q", outer)
 	}
-	if mock.fs.hasPrefixMatch("/tmp/.artex_") {
+	if strings.Contains(strings.ToLower(outer), "artex") {
+		t.Fatalf("落盘路径不应含产品名字样(批 7 P0-3): %q", outer)
+	}
+	if mock.fs.hasPrefixMatch("/tmp/.") {
 		t.Fatal("临时脚本用完未清理")
 	}
 }
@@ -892,7 +895,7 @@ func TestScriptDropTmpPrefix(t *testing.T) {
 	mock.mu.Lock()
 	outer := mock.lastOuter
 	mock.mu.Unlock()
-	if !strings.Contains(outer, "base64 -d > /tmp/.artex_7_42_") {
+	if !strings.Contains(outer, "base64 -d > /tmp/.7_42_") {
 		t.Fatalf("落盘脚本未按 worker 前缀隔离: %q", outer)
 	}
 	// 未注入前缀时回落默认前缀。
@@ -902,15 +905,15 @@ func TestScriptDropTmpPrefix(t *testing.T) {
 	mock.mu.Lock()
 	outer = mock.lastOuter
 	mock.mu.Unlock()
-	if !strings.Contains(outer, "base64 -d > /tmp/.artex_") ||
-		strings.Contains(outer, "/tmp/.artex_7_42_") {
+	if !strings.Contains(outer, "base64 -d > /tmp/.") ||
+		strings.Contains(outer, "/tmp/.7_42_") {
 		t.Fatalf("默认前缀异常: %q", outer)
 	}
 }
 
 // TestTmpPrefixSanitize:非法前缀（含 sh 元字符/非绝对路径）一律回落默认。
 func TestTmpPrefixSanitize(t *testing.T) {
-	if got := WorkerTmpPrefix(7, 42); got != "/tmp/.artex_7_42_" {
+	if got := WorkerTmpPrefix(7, 42); got != "/tmp/.7_42_" {
 		t.Fatalf("WorkerTmpPrefix = %q", got)
 	}
 	for _, bad := range []string{"", "rel/path", "/tmp/x; rm -rf /", "/tmp/x$(id)", "/tmp/x`id`", "/tmp/x y", `"/tmp/x"`} {
@@ -918,7 +921,11 @@ func TestTmpPrefixSanitize(t *testing.T) {
 			t.Fatalf("sanitizeTmpPrefix(%q) = %q, want 默认前缀", bad, got)
 		}
 	}
-	if got := sanitizeTmpPrefix("/tmp/.artex_1_2_"); got != "/tmp/.artex_1_2_" {
+	if got := sanitizeTmpPrefix("/tmp/.1_2_"); got != "/tmp/.1_2_" {
 		t.Fatalf("合法前缀被误杀: %q", got)
+	}
+	// 批 7 P0-3:前缀与默认前缀都不含产品名字样。
+	if strings.Contains(strings.ToLower(defaultTmpPrefix+WorkerTmpPrefix(7, 42)), "artex") {
+		t.Fatal("临时文件前缀含 artex 字样")
 	}
 }

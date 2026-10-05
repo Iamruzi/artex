@@ -77,11 +77,23 @@ func (r *ProbeReport) FirstOKPort() int {
 	return 0
 }
 
-// probeCmd 组装一条带确定性哨兵的探针命令。标记形如 ARTEX_<TAG>_OK /
-// ARTEX_<TAG>_FAIL，解析只认标记（PivotHub 语义：输出污染/粘连不得误判）。
-func probeCmd(kind, tag, target string) string {
-	ok := "ARTEX_" + tag + "_OK"
-	fail := "ARTEX_" + tag + "_FAIL"
+// markerPrefix 生成一次 Probe 运行的随机哨兵前缀(6 位大写 hex)。
+// 批 7 补漏:固定 "ARTEX_" 前缀会随探针命令留在目标 shell history/日志里,
+// 是直白的产品指纹;每次运行换随机前缀,解析逻辑不变。
+func markerPrefix() string {
+	t, err := randTag()
+	if err != nil {
+		return "P9X2" // 随机源失败极罕见;固定兜底仅保证协议可解析
+	}
+	return strings.ToUpper(t[:6])
+}
+
+// probeCmd 组装一条带确定性哨兵的探针命令。标记形如 <PFX>_<TAG>_OK /
+// <PFX>_<TAG>_FAIL(PFX 为每次运行的随机前缀),解析只认标记
+// (PivotHub 语义：输出污染/粘连不得误判)。
+func probeCmd(kind, tag, target, pfx string) string {
+	ok := pfx + "_" + tag + "_OK"
+	fail := pfx + "_" + tag + "_FAIL"
 	host, port, _ := net.SplitHostPort(target)
 	switch kind {
 	case "tcp":
@@ -109,13 +121,14 @@ func probeCmd(kind, tag, target string) string {
 	return "echo " + fail
 }
 
-// ParseProbeOutput 解析探针回显：只认 ARTEX_<TAG>_OK / _FAIL 哨兵。
+// ParseProbeOutput 解析探针回显：只认 <PFX>_<TAG>_OK / _FAIL 哨兵(pfx 为
+// Probe 运行期生成的随机前缀)。
 // 第二返回值表示是否找到标记（false = 通道异常/输出被污染，按不通处理但 Detail 如实记录）。纯函数。
-func ParseProbeOutput(tag, out string) (ok, found bool) {
-	if strings.Contains(out, "ARTEX_"+tag+"_OK") {
+func ParseProbeOutput(pfx, tag, out string) (ok, found bool) {
+	if strings.Contains(out, pfx+"_"+tag+"_OK") {
 		return true, true
 	}
-	if strings.Contains(out, "ARTEX_"+tag+"_FAIL") {
+	if strings.Contains(out, pfx+"_"+tag+"_FAIL") {
 		return false, true
 	}
 	return false, false
@@ -123,8 +136,8 @@ func ParseProbeOutput(tag, out string) (ok, found bool) {
 
 // ParseTCPOutput 解析 TCP 探针回显为三态（见 TCPState)。只认哨兵；
 // 注意带后缀的标记（_OK_REFUSED 等）必须先于裸 _OK/_FAIL 匹配。纯函数。
-func ParseTCPOutput(tag, out string) (state TCPState, found bool) {
-	base := "ARTEX_" + tag + "_OK"
+func ParseTCPOutput(pfx, tag, out string) (state TCPState, found bool) {
+	base := pfx + "_" + tag + "_OK"
 	switch {
 	case strings.Contains(out, base+"_REFUSED"):
 		return TCPRefused, true
@@ -176,13 +189,14 @@ func detailOf(out string) string {
 // 单针失败不中断，证据全部入报告；会话本身失败才返回 error。
 func Probe(ctx context.Context, sess session.Session, attackAddrs []string, icmp bool) (*ProbeReport, error) {
 	rep := &ProbeReport{SessionID: sess.ID()}
+	pfx := markerPrefix() // 每次运行一个随机哨兵前缀(去固定指纹)
 	run := func(kind, tag, target string) {
-		stdout, _, err := sess.Exec(ctx, probeCmd(kind, tag, target), probeTimeout)
+		stdout, _, err := sess.Exec(ctx, probeCmd(kind, tag, target, pfx), probeTimeout)
 		res := ProbeResult{Name: strings.ToLower(tag), Kind: kind, Target: target}
 		if err != nil {
 			res.Detail = "会话执行失败: " + err.Error()
 		} else if kind == "tcp" {
-			state, found := ParseTCPOutput(tag, stdout)
+			state, found := ParseTCPOutput(pfx, tag, stdout)
 			res.State = string(state)
 			// refused 算通：对授权内网场景，「未监听」与「丢包过滤」是两种姿态，
 			// RST 证明包能到对端——隧道 server 监听该口即可回连。
@@ -192,7 +206,7 @@ func Probe(ctx context.Context, sess session.Session, attackAddrs []string, icmp
 				res.Detail = "未找到探针哨兵标记（通道异常/输出污染）: " + res.Detail
 			}
 		} else {
-			ok, found := ParseProbeOutput(tag, stdout)
+			ok, found := ParseProbeOutput(pfx, tag, stdout)
 			res.OK = ok
 			res.Detail = detailOf(stdout)
 			if !found {

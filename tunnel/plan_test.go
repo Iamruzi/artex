@@ -178,3 +178,30 @@ func TestRollbackStepsOrder(t *testing.T) {
 		}
 	}
 }
+
+// TestPlanFileNamesNoToolFingerprint 批 7 P1-4:平台侧 authfile/日志文件名不含
+// 工具名特征（防取证者上机一眼认出）。随机 tag 保证唯一性。
+func TestPlanFileNamesNoToolFingerprint(t *testing.T) {
+	p, err := PlanSocks(testOpts())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []string{p.AuthFile, p.ServerLog} {
+		if strings.Contains(f, "chisel") || strings.Contains(f, "suo5") {
+			t.Errorf("平台侧文件 %q 含工具名特征", f)
+		}
+	}
+	sp, err := PlanSuo5(&Suo5PlanOpts{
+		TaskID: 7, ViaSessionID: 3,
+		ShellURL: "http://10.0.0.5:8082/s.jsp", SessionKind: "http_jsp",
+		VerifyAddr: "10.0.0.5:8082",
+		PortMin:    20000, PortMax: 20100, CanListen: func(int) bool { return true },
+		DataDir: "/tmp/x",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(sp.ServerLog, "suo5") || strings.Contains(sp.ServerLog, "chisel") {
+		t.Errorf("suo5 日志文件 %q 含工具名特征", sp.ServerLog)
+	}
+}

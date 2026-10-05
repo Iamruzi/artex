@@ -8,6 +8,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Autumn-27/artex/config"
+	"github.com/Autumn-27/artex/tunnel"
 )
 
 // 以下 fixture 是 2026-09-13 测试机(penelope --mcp)真实返回的 text block 内容。
@@ -144,6 +147,57 @@ func TestReversePayloads(t *testing.T) {
 	}
 	if !strings.Contains(p["bash"], "/dev/tcp/10.8.0.6/4444") {
 		t.Fatalf("bash payload 形态不符: %q", p["bash"])
+	}
+}
+
+// TestReversePayloadsDefingerprinted 批 7 P0-5:不再含教科书固定形态
+// (/tmp/f),fifo 路径每次随机,两次生成的 payload 集不相同。
+func TestReversePayloadsDefingerprinted(t *testing.T) {
+	a := reversePayloads("10.8.0.6", 20001)
+	b := reversePayloads("10.8.0.6", 20001)
+	for _, p := range []map[string]string{a, b} {
+		for k, v := range p {
+			if strings.Contains(v, "/tmp/f") {
+				t.Fatalf("payload %s 含教科书 fifo 路径 /tmp/f: %q", k, v)
+			}
+			if strings.Contains(strings.ToLower(v), "artex") {
+				t.Fatalf("payload %s 含产品名字样: %q", k, v)
+			}
+		}
+		if !strings.HasPrefix(p["nc"], "rm -f /tmp/.") && !strings.HasPrefix(p["nc"], "mkfifo /tmp/.") {
+			t.Fatalf("nc payload fifo 应为 /tmp/.<rand>: %q", p["nc"])
+		}
+	}
+	if a["nc"] == b["nc"] && a["bash"] == b["bash"] && a["python"] == b["python"] {
+		t.Fatalf("两次生成的 payload 全部相同（fifo 路径与变体都应随机）: %v", a)
+	}
+}
+
+// TestRandomReversePort 批 7 P0-5:默认端口从隧道端口池随机挑且真实可绑,不固定。
+func TestRandomReversePort(t *testing.T) {
+	min, max, err := tunnel.ParsePortRange(config.TunnelPortRange())
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[int]bool{}
+	for i := 0; i < 8; i++ {
+		p, err := randomReversePort()
+		if err != nil {
+			t.Fatalf("randomReversePort: %v", err)
+		}
+		if p < min || p > max {
+			t.Fatalf("端口 %d 不在池 %d-%d 内", p, min, max)
+		}
+		if !tunnel.CanListen(p) {
+			t.Fatalf("端口 %d 不可绑", p)
+		}
+		seen[p] = true
+	}
+	if len(seen) < 2 {
+		t.Fatalf("8 次分配只出 %d 个不同端口,随机性存疑: %v", len(seen), seen)
+	}
+	if _, ok := seen[4444]; ok && len(seen) == 1 {
+		t.Fatal("端口分配退化为固定值")
 	}
 }
 

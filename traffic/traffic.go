@@ -36,6 +36,7 @@ import (
 	"github.com/Autumn-27/artex/db"
 	"github.com/Autumn-27/norma/permission"
 	actool "github.com/Autumn-27/norma/tool"
+	mcert "github.com/lqqyt2423/go-mitmproxy/cert"
 	mproxy "github.com/lqqyt2423/go-mitmproxy/proxy"
 	_ "modernc.org/sqlite"
 )
@@ -231,10 +232,14 @@ func Open(dir, addr string) (*Traffic, error) {
 		t.fts = true
 	}
 
+	// 批 7 P1-1：CA 由平台侧自生成（主题随机化，链上无 mitmproxy 字样），
+	// 经 NewCaFunc 注入——库内置 CA 会把 CN/O=mitmproxy 写死在根与叶子上。
 	p, err := mproxy.NewProxy(&mproxy.Options{
 		Addr:        addr,
 		SslInsecure: sslInsecure(),
-		CaRootPath:  filepath.Join(dir, "_ca"),
+		NewCaFunc: func() (mcert.CA, error) {
+			return newStealthCA(filepath.Join(dir, "_ca"))
+		},
 	})
 	if err != nil {
 		db.Close()
@@ -247,8 +252,8 @@ func Open(dir, addr string) (*Traffic, error) {
 	if auth != nil {
 		p.SetAuthProxy(auth.check)
 	}
-	// go-mitmproxy wrote (or rewrote) the CA during NewProxy; its key signs
-	// every intercepted certificate, so keep the whole tree owner-only (F11c).
+	// NewProxy 触发了平台自签 CA 的生成/加载（见 newStealthCA）；CA 私钥签发
+	// 每张拦截证书，整棵树保持 owner-only（F11c）。
 	chmodCATree(filepath.Join(dir, "_ca"))
 	// One-time sweep tightening files/dirs written by older versions.
 	t.migratePerms()
@@ -652,7 +657,7 @@ func ValidateProxyURL(raw string) (*url.URL, error) {
 }
 
 // CACertPath returns the PEM CA cert clients must trust to verify HTTPS through
-// the MITM proxy (go-mitmproxy writes it here on first start).
+// the MITM proxy (newStealthCA writes it here on first start; 文件名沿用库布局).
 func (t *Traffic) CACertPath() string {
 	return filepath.Join(t.dir, "_ca", "mitmproxy-ca-cert.pem")
 }

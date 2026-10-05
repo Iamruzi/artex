@@ -283,7 +283,9 @@ func processAlive(pid int) bool {
 
 // serverCmdlineMatches 杀台前核对 /proc/<pid>/cmdline 确为台账里的隧道进程
 // （防 pid 复用误杀；非 linux 平台保守返回 false，只靠本进程台账句柄）。
-// chisel 核对 authfile 路径；suo5 核对 CLI 名与 payload URL。
+// 批 7 P1-4：平台侧文件名已去 "chisel"/"suo5" 特征，且二进制路径可经
+// ARTEX_*_PATH 指向任意名字——不再核对工具名，只核对随计划生成的唯一特征：
+// chisel 核对 authfile 路径（含随机 tag);suo5 核对 payload URL（含随机文件名）。
 func serverCmdlineMatches(p *Plan) bool {
 	if runtime.GOOS != "linux" || p.ServerPID <= 0 {
 		return false
@@ -294,7 +296,7 @@ func serverCmdlineMatches(p *Plan) bool {
 	}
 	cl := strings.ReplaceAll(string(data), "\x00", " ")
 	if p.Adapter == AdapterSuo5 {
-		return strings.Contains(cl, "suo5") && (p.PayloadURL == "" || strings.Contains(cl, p.PayloadURL))
+		return p.PayloadURL != "" && strings.Contains(cl, p.PayloadURL)
 	}
-	return strings.Contains(cl, "chisel") && strings.Contains(cl, p.AuthFile)
+	return p.AuthFile != "" && strings.Contains(cl, p.AuthFile)
 }

@@ -61,13 +61,15 @@ var ErrSessionNotFound = errors.New("session 不存在或已关闭")
 type ctxTmpPrefixKey struct{}
 
 // defaultTmpPrefix 是目标侧临时文件默认前缀（未注入调用方前缀时）。
-const defaultTmpPrefix = "/tmp/.artex_"
+// 批 7 P0-3：不带任何产品名字样（固定前缀是主机审计规则的首要命中点）,
+// 形态为 /tmp/.<随机>——随机段由使用方拼接。
+const defaultTmpPrefix = "/tmp/."
 
-// WorkerTmpPrefix 构造 per-worker 命名空间前缀：/tmp/.artex_<task>_<intent>_。
+// WorkerTmpPrefix 构造 per-worker 命名空间前缀：/tmp/.<task>_<intent>_。
 // 多 worker 共用同一立足点时，各自的落盘脚本/标记文件不再互相覆盖（复盘 R5:
-// 硬编码共享路径导致输出串台、哨兵误报「马失效」)。
+// 硬编码共享路径导致输出串台、哨兵误报「马失效」)。无语义字符，不携带产品指纹。
 func WorkerTmpPrefix(taskID, intentID int64) string {
-	return fmt.Sprintf("/tmp/.artex_%d_%d_", taskID, intentID)
+	return fmt.Sprintf("/tmp/.%d_%d_", taskID, intentID)
 }
 
 // WithTmpPrefix 给 ctx 挂目标侧临时文件命名空间前缀（server 层按 worker 注入）。

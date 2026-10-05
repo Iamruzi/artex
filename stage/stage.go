@@ -95,6 +95,13 @@ type Manager struct {
 	// 但慢回调会拖住调用方 goroutine）。写 activity / 日志由宿主实现。
 	OnEvent func(Event)
 
+	// MissWriter 非 nil 时替代内置的一致性 404 响应（未命中/限速/过期都走它）。
+	// 批 7 P0-1：门控开启时 server 把 gate 的 decoy 伪装页写进来——否则
+	// GET / 回 nginx 页、GET /s/x/y 回 Go 404,一条 curl 对比即识别出门控。
+	// 批 7 P1-3：带 *http.Request,伪装响应按方法区分（GET/HEAD 200 页,
+	// 其余 405,与真 nginx 静态目录一致）。
+	MissWriter func(w http.ResponseWriter, r *http.Request)
+
 	rateMu   sync.Mutex
 	tokenHit map[string][]time.Time // token → 最近的下载尝试时间
 	ipHit    map[string][]time.Time
@@ -245,18 +252,19 @@ func (m *Manager) Delete(token string) bool {
 }
 
 // Download 服务一次下载（挂载在 GET /s/{token}/{name}）。防枚举要点：
-// token 不存在 / name 不匹配 / 已过期 / 命中限速——全部返回同一个 404。
+// token 不存在 / name 不匹配 / 已过期 / 命中限速——全部返回同一个未命中响应
+// （默认一致性 404；MissWriter 注入时按注入方，见字段注释）。
 func (m *Manager) Download(w http.ResponseWriter, r *http.Request, token, name string) {
 	ip := remoteIP(r)
 	if !m.allowAttempt(token, ip) {
-		notFound(w)
+		m.miss(w, r)
 		return
 	}
 	m.mu.Lock()
 	e, ok := m.entries[token]
 	if !ok || e.Name != name || time.Now().After(e.ExpiresAt) {
 		m.mu.Unlock()
-		notFound(w)
+		m.miss(w, r)
 		return
 	}
 	m.mu.Unlock()
@@ -264,7 +272,7 @@ func (m *Manager) Download(w http.ResponseWriter, r *http.Request, token, name s
 	path := filepath.Join(m.dir, token, name)
 	f, err := os.Open(path)
 	if err != nil {
-		notFound(w)
+		m.miss(w, r)
 		return
 	}
 	w.Header().Set("Content-Type", "application/octet-stream")
@@ -392,6 +400,15 @@ func newToken() (string, error) {
 func urlPathEscape(name string) string {
 	r := strings.NewReplacer("%", "%25", "/", "%2F", "?", "%3F", "#", "%23", " ", "%20")
 	return r.Replace(name)
+}
+
+// miss 写未命中响应：MissWriter 注入时按注入方（门控 decoy)，否则内置的一致性 404。
+func (m *Manager) miss(w http.ResponseWriter, r *http.Request) {
+	if m.MissWriter != nil {
+		m.MissWriter(w, r)
+		return
+	}
+	notFound(w)
 }
 
 func notFound(w http.ResponseWriter) {

@@ -246,7 +246,8 @@ func (g *Gate) wrap(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// /s/ 是受管暂存下载面(F13):目标机器用 curl/wget 拉文件,既没有门控
 		// cookie 也没有 JWT——安全靠 24 字节随机 token 路径 + 每 token 限速 +
-		// 一致性 404(stage.Manager.Download)。必须在门控【之前】豁免。
+		// 一致性未命中响应(stage.Manager.Download;门控开启时未命中响应由
+		// server 注入为本文件同款 decoy 页,两侧无差分)。必须在门控【之前】豁免。
 		if strings.HasPrefix(r.URL.Path, "/s/") {
 			next.ServeHTTP(w, r)
 			return
@@ -259,7 +260,7 @@ func (g *Gate) wrap(next http.Handler) http.Handler {
 			case http.MethodPost:
 				g.handleLogin(w, r)
 			default:
-				writeDecoy(w)
+				writeDecoy(w, r)
 			}
 			return
 		}
@@ -267,7 +268,7 @@ func (g *Gate) wrap(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		writeDecoy(w)
+		writeDecoy(w, r)
 	})
 }
 
@@ -279,12 +280,12 @@ func (g *Gate) handleLogin(w http.ResponseWriter, r *http.Request) {
 		ip = r.RemoteAddr
 	}
 	if !g.limiter.allow(ip) {
-		writeDecoy(w)
+		writeDecoy(w, r)
 		return
 	}
 	if err := r.ParseForm(); err != nil ||
 		subtle.ConstantTimeCompare([]byte(r.PostForm.Get("password")), []byte(g.token)) != 1 {
-		writeDecoy(w)
+		writeDecoy(w, r)
 		return
 	}
 	http.SetCookie(w, &http.Cookie{
@@ -332,14 +333,53 @@ func (g *Gate) validCookie(v string) bool {
 	return hmac.Equal(want, mac.Sum(nil))
 }
 
-// writeDecoy 写伪装响应:固定 nginx 欢迎页 + nginx 典型头(Go 默认不吐
-// Server 头,这里主动补上)。所有未过门控的响应都必须走这里,保证逐字节一致。
-func writeDecoy(w http.ResponseWriter) {
+// decoyErrorPage 是非 GET/HEAD 方法的伪装响应体,与真实 nginx 静态目录的默认
+// 405 错误页形态一致(真 nginx 对 POST/PUT/OPTIONS 等一律 405)。
+var decoyErrorPage = []byte(`<html>
+<head><title>405 Not Allowed</title></head>
+<body>
+<center><h1>405 Not Allowed</h1></center>
+<hr><center>nginx</center>
+</body>
+</html>
+`)
+
+// 伪装页在叙事上是"服务器磁盘上的一份静态文件":真 nginx 会带 Last-Modified/
+// ETag/Accept-Ranges,缺了是主动探测的一眼假差异。值必须固定(逐字节固定原则:
+// 每次启动变化的伪装本身就成了新指纹)。ETag 按 nginx 惯例 <mtime_hex>-<size_hex>。
+const decoyMtimeUnix = 1688460285 // 2023-07-04T03:24:45Z,任意固定时刻
+
+var (
+	decoyLastModified = time.Unix(decoyMtimeUnix, 0).UTC().Format(http.TimeFormat)
+	decoyETag         = fmt.Sprintf("\"%x-%x\"", decoyMtimeUnix, len(decoyPage))
+)
+
+// writeDecoy 写伪装响应,行为对齐真 nginx 静态目录(批 7 P1-3):
+// GET → 200 固定欢迎页;HEAD → 同头空 body(Content-Length 与 GET 一致);
+// 其余方法(含 OPTIONS/POST)→ 405 + Allow: GET + 固定错误页。
+// 头集带 Server/Date(由 net/http 自动补)/Last-Modified/ETag/Accept-Ranges。
+// 所有未过门控的响应都必须走这里,保证同方法下逐字节一致。
+func writeDecoy(w http.ResponseWriter, r *http.Request) {
 	h := w.Header()
 	h.Set("Server", "nginx")
 	h.Set("Content-Type", "text/html")
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(decoyPage)
+	h.Set("Last-Modified", decoyLastModified)
+	h.Set("Accept-Ranges", "bytes")
+	if r.Method == http.MethodGet || r.Method == http.MethodHead {
+		// ETag 直写 map 保留大小写(nginx 线上是 "ETag";Header().Set 会被
+		// 规范成 "Etag")。
+		h["ETag"] = []string{decoyETag}
+		h.Set("Content-Length", strconv.Itoa(len(decoyPage)))
+		w.WriteHeader(http.StatusOK)
+		if r.Method == http.MethodGet {
+			_, _ = w.Write(decoyPage)
+		}
+		return
+	}
+	h.Set("Allow", "GET")
+	h.Set("Content-Length", strconv.Itoa(len(decoyErrorPage)))
+	w.WriteHeader(http.StatusMethodNotAllowed)
+	_, _ = w.Write(decoyErrorPage)
 }
 
 // ipRateLimiter 是内存版每 IP 固定窗口计数器(口令尝试限速用)。

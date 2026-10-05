@@ -49,7 +49,10 @@ const (
 	initArrOff = 0x1000
 )
 
-var magic = []byte("ARTEXLDPATHv1\x00\x00\x00") // 16B,与 session/bypass.go 一致
+// magic 是路径槽定位串:一次性随机的 16 字节无语义值,与 session/bypass.go 的
+// ldpreloadMagic 必须逐字节一致(批 7 P0-4:原 "ARTEXLDPATHv1" 是明文产品指纹)。
+// 改这里必须同步改 bypass.go 并重跑本生成器。
+var magic = []byte("\x73\x62\xb6\xd6\x97\x17\x14\x4e\x54\x3c\xec\x37\x36\x4d\xf1\x73")
 
 // constructor 产出构造器机器码。rip 相对寻址的 disp 由布局常量计算，不写死。
 func constructor() []byte {

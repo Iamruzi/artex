@@ -35,7 +35,23 @@ func (s *Server) initStage(dataDir string) {
 	}
 	m.OnEvent = s.recordStageEvent
 	s.stage = m
+	s.applyStageMissWriter()
 	log.Printf("[stage] 受管暂存服务已就绪: GET /s/<token>/<name> (TTL 默认 %v,上限 %v)", stage.DefaultTTL, stage.MaxTTL)
+}
+
+// applyStageMissWriter 按门控开关决定 /s/ 未命中响应(批 7 P0-1):门控开启时
+// 未命中必须回与门控逐字节一致的 decoy nginx 页(含 Server/Content-Type 头与
+// 200 状态码),否则 / 与 /s/x/y 的响应差一条 curl 即可识别;门控关闭保持内置 404。
+// initStage 与 SetGate 两个装配点都调用(先后顺序不敏感)。
+func (s *Server) applyStageMissWriter() {
+	if s.stage == nil {
+		return
+	}
+	if s.gate != nil {
+		s.stage.MissWriter = writeDecoy
+	} else {
+		s.stage.MissWriter = nil
+	}
 }
 
 // SetStageBaseURL 设置拼进暂存 URL 的对外基址(通常是主监听地址)。目标机器能
@@ -88,14 +104,25 @@ func orDash(s string) string {
 	return s
 }
 
-// stageDownload 服务下载。挂 root mux(JWT 之外);防枚举的一致性 404 与限速
-// 都在 stage.Manager.Download 里。
+// stageDownload 服务下载。挂 root mux(JWT 之外);防枚举的一致性未命中响应与限速
+// 都在 stage.Manager.Download 里(门控开启时未命中 = decoy 页,见 applyStageMissWriter)。
 func (s *Server) stageDownload(w http.ResponseWriter, r *http.Request) {
 	if s.stage == nil {
-		http.NotFound(w, r)
+		s.stageMiss(w, r)
 		return
 	}
 	s.stage.Download(w, r, r.PathValue("token"), r.PathValue("name"))
+}
+
+// stageMiss 处理 /s/ 前缀下不匹配「GET /s/{token}/{name}」的请求(段数不对、
+// 非 GET 方法、stage 未启用):门控开启时回 decoy 页(与 / 未命中逐字节一致,
+// 不留差分),门控关闭时维持普通 404。
+func (s *Server) stageMiss(w http.ResponseWriter, r *http.Request) {
+	if s.gate != nil {
+		writeDecoy(w, r)
+		return
+	}
+	http.NotFound(w, r)
 }
 
 // --- 管理 API(JWT 之后,供 worker 工具与 UI 使用) ---

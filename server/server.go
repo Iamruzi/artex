@@ -1021,7 +1021,18 @@ func (s *Server) Handler() http.Handler {
 	root := http.NewServeMux()
 	root.Handle("/api/", api)
 	root.HandleFunc("GET /s/{token}/{name}", s.stageDownload)
-	root.Handle("/", s.webuiHandler())
+	// 批 7 P0-1:/s/ 前缀的其余形态(段数不符/非 GET)也要与门控响应一致——
+	// 门控对 /s/ 整前缀放行(gate.go),不接住这些形态,它们会落进 webui/Go 默认
+	// 404,与 / 的 decoy 页形成差分指纹。门控关闭时维持 webui 直通的现状。
+	web := s.webuiHandler()
+	root.HandleFunc("/s/", func(w http.ResponseWriter, r *http.Request) {
+		if s.gate != nil {
+			s.stageMiss(w, r)
+			return
+		}
+		web.ServeHTTP(w, r)
+	})
+	root.Handle("/", web)
 	return s.gate.wrap(root)
 }
 
@@ -1031,6 +1042,8 @@ func (s *Server) SetGate(g *Gate) {
 	s.gate = g
 	// 批 5 B2:入口路径是平台敏感信息,门控安装/变更后重新注册出口审查指纹。
 	s.registerEgressFingerprints()
+	// 批 7 P0-1:/s/ 未命中响应跟随门控开关(decoy 或一致性 404)。
+	s.applyStageMissWriter()
 }
 
 // --- handlers ---

