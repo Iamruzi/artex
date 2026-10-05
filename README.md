@@ -106,6 +106,15 @@ docker compose up -d --build
 | impacket / nxc / mimikatz / pypykatz / laZagne | Windows 协议利用与凭据收割 |
 | peass / penelope | 提权枚举 / 反弹 shell handler |
 
+> ⚠️ **常见问题：为什么部署完「工具 → 自定义工具」是空的？**
+> 军火库**不随平台分发**（公开攻击工具不打包进仓库/镜像，避免杀软误报和法律风险），需要两步手动补齐：
+>
+> 1. **放文件**：把工具二进制放到 `data/tools/`（用我们交付包的话：解压 `images/tools.tar.gz` 到部署目录即可，得到 `data/tools/`);
+> 2. **注册**：在「工具 → 自定义工具」页逐个添加（kind 选 `shell`，描述里写清二进制的绝对路径和用法），agent 才能看见并调用。
+>
+> 只有文件没注册 → 平台看不见；只有注册没文件 → 调用了会报文件不存在。两步都要做。
+> Python 系工具（impacket/pypykatz/nxc）不进 tools 目录，建议建 venv（如 `data/postx-venv/`）安装后在描述里写 venv 路径。
+
 - **钉版清单**:`packaging/tools-manifest.json` 记录版本/平台/sha256/相对路径，启动自检（不匹配只警告，留空=未钉）。
 - **部署预检**：装完/升级后跑 `./artex doctor`——检查 PG、LLM profile、data 可写、隧道工具、军火库、门控、回连地址，FAIL 退出码 1。
 - 工具在「工具」页注册为自定义工具（`kind=shell`）后 agent 才能调用。
