@@ -13,10 +13,12 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"log"
 	"math/big"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -104,6 +106,11 @@ type Gate struct {
 //	ARTEX_GATE_TOKEN  握手口令;未设置时 = 入口路径的随机 token 本身
 //	                  ("知道入口即能进")。
 //	ARTEX_GATE_TTL_HOURS  cookie 有效期(小时),默认 168(7 天)。
+//	ARTEX_GATE_DECOY_PROXY  可选。设置后(如 http://149.88.73.252:8081),
+//	                  未过门控的请求不再回静态 nginx 页,而是透明反代到该目标
+//	                  (全方法全路径透传,Host 重写为目标 host,带真实来源
+//	                  X-Forwarded-For/X-Real-IP,超时 15s);目标不可达/超时
+//	                  时回落静态 decoy 页。未设置时行为不变。
 //
 // 启用时入口路径写入 dataDir/gate.path(0600)并在启动日志打印一次。
 func NewGate(addr, dataDir, keyDir string) (*Gate, error) {
@@ -354,12 +361,22 @@ var (
 	decoyETag         = fmt.Sprintf("\"%x-%x\"", decoyMtimeUnix, len(decoyPage))
 )
 
-// writeDecoy 写伪装响应,行为对齐真 nginx 静态目录(批 7 P1-3):
+// writeDecoy 写伪装响应。设置了 ARTEX_GATE_DECOY_PROXY 时透明反代到目标
+// (失败回落静态页);否则回静态 nginx 伪装页。所有未过门控的响应都必须走
+// 这里,保证同方法下逐字节一致(静态模式)或与目标站点一致(反代模式)。
+func writeDecoy(w http.ResponseWriter, r *http.Request) {
+	if target := decoyProxyTarget(); target != nil {
+		writeDecoyProxy(w, r, target)
+		return
+	}
+	writeDecoyStatic(w, r)
+}
+
+// writeDecoyStatic 写静态伪装响应,行为对齐真 nginx 静态目录(批 7 P1-3):
 // GET → 200 固定欢迎页;HEAD → 同头空 body(Content-Length 与 GET 一致);
 // 其余方法(含 OPTIONS/POST)→ 405 + Allow: GET + 固定错误页。
 // 头集带 Server/Date(由 net/http 自动补)/Last-Modified/ETag/Accept-Ranges。
-// 所有未过门控的响应都必须走这里,保证同方法下逐字节一致。
-func writeDecoy(w http.ResponseWriter, r *http.Request) {
+func writeDecoyStatic(w http.ResponseWriter, r *http.Request) {
 	h := w.Header()
 	h.Set("Server", "nginx")
 	h.Set("Content-Type", "text/html")
@@ -380,6 +397,101 @@ func writeDecoy(w http.ResponseWriter, r *http.Request) {
 	h.Set("Content-Length", strconv.Itoa(len(decoyErrorPage)))
 	w.WriteHeader(http.StatusMethodNotAllowed)
 	_, _ = w.Write(decoyErrorPage)
+}
+
+// decoyProxyTimeout 是 decoy 反代模式的整体超时(连目标、等响应、读 body 全程)。
+const decoyProxyTimeout = 15 * time.Second
+
+// decoyProxyHTTPClient 复用连接(不缓存响应),Timeout 兜底整个往返。
+var decoyProxyHTTPClient = &http.Client{Timeout: decoyProxyTimeout}
+
+// decoyProxyCache 按 env 原值缓存解析结果,避免每个未过门控的请求都 Parse 一次;
+// env 值变化(含测试 t.Setenv)时自动重解析。
+var decoyProxyCache struct {
+	mu  sync.Mutex
+	raw string
+	url *url.URL
+}
+
+// decoyProxyTarget 解析 ARTEX_GATE_DECOY_PROXY;未设置或非法时返回 nil(静态 decoy)。
+func decoyProxyTarget() *url.URL {
+	raw := strings.TrimSpace(os.Getenv("ARTEX_GATE_DECOY_PROXY"))
+	if raw == "" {
+		return nil
+	}
+	decoyProxyCache.mu.Lock()
+	defer decoyProxyCache.mu.Unlock()
+	if raw == decoyProxyCache.raw {
+		return decoyProxyCache.url
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		log.Printf("[gate] ARTEX_GATE_DECOY_PROXY=%q 非法,decoy 反代未启用(回落静态页)", raw)
+		decoyProxyCache.raw, decoyProxyCache.url = raw, nil
+		return nil
+	}
+	log.Printf("[gate] decoy 反代模式已启用,目标: %s://%s", u.Scheme, u.Host)
+	decoyProxyCache.raw, decoyProxyCache.url = raw, u
+	return u
+}
+
+// decoyHopHeaders 是反代时必须剥掉的逐跳头(RFC 7230 §6.1)。
+var decoyHopHeaders = []string{
+	"Connection", "Keep-Alive", "Proxy-Authenticate", "Proxy-Authorization",
+	"Te", "Trailer", "Transfer-Encoding", "Upgrade",
+}
+
+// writeDecoyProxy 把未过门控的请求透明反代到 target:全方法全路径透传,
+// Host 重写为目标 host,附真实来源 X-Forwarded-For/X-Real-IP,body 流式
+// 透传不缓存;响应头(含 Server)原样回写——目标说什么就是什么,不覆盖也
+// 不补。目标不可达/超时(15s)时回落静态 decoy 页,不泄露后端状态。
+func writeDecoyProxy(w http.ResponseWriter, r *http.Request, target *url.URL) {
+	u := *target
+	u.Path = strings.TrimSuffix(target.Path, "/") + r.URL.Path
+	u.RawPath = ""
+	u.RawQuery = r.URL.RawQuery
+
+	req, err := http.NewRequestWithContext(r.Context(), r.Method, u.String(), r.Body)
+	if err != nil {
+		writeDecoyStatic(w, r)
+		return
+	}
+	req.Header = r.Header.Clone()
+	for _, h := range decoyHopHeaders {
+		req.Header.Del(h)
+	}
+	req.Host = target.Host
+	req.ContentLength = r.ContentLength
+	ip, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil || ip == "" {
+		ip = r.RemoteAddr
+	}
+	if prior := req.Header.Get("X-Forwarded-For"); prior != "" {
+		req.Header.Set("X-Forwarded-For", prior+", "+ip)
+	} else {
+		req.Header.Set("X-Forwarded-For", ip)
+	}
+	req.Header.Set("X-Real-IP", ip)
+
+	resp, err := decoyProxyHTTPClient.Do(req)
+	if err != nil {
+		writeDecoyStatic(w, r)
+		return
+	}
+	defer resp.Body.Close()
+
+	h := w.Header()
+	for k, vs := range resp.Header {
+		h.Del(k) // 防目标与本地头并存(如 Content-Length)
+		for _, v := range vs {
+			h.Add(k, v)
+		}
+	}
+	for _, k := range decoyHopHeaders {
+		h.Del(k)
+	}
+	w.WriteHeader(resp.StatusCode)
+	_, _ = io.Copy(w, resp.Body)
 }
 
 // ipRateLimiter 是内存版每 IP 固定窗口计数器(口令尝试限速用)。
