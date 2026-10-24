@@ -14,7 +14,7 @@ AI 自主渗透测试系统 · 二开版（Go 后端 + Next.js 前端 + PostgreS
 | **内网作战** | webshell 加密会话管理（PHP/JSP)、反弹 shell(penelope 受管）、立足点被动侦察（`session_recon`)、多层代理隧道（suo5/chisel 自动选型、任务级 MITM 热切换）、内网拓扑图（按任务过滤）、凭据库 |
 | **阶段编排** | 待授权网段审批（侦察发现 scope 外网段 → 人工批准扩 scope)、外网→内网任务移交（handoff 模板建子任务）、内网 worker 提示词变体（有立足点自动切换） |
 | **安全与反测绘** | 伪装门控（未过门控一律返回逐字节固定 nginx 欢迎页，随机入口路径）、一键放行（2/4/8h 时限审批豁免，deny 不豁免）、RoE 范围强制三态（off/warn/strict) |
-| **蜜罐识别与反 AI 蜜罐防护** | 静态签名识别层（`honeydetect/`，内嵌签名库覆盖 Cowrie/OpenCanary/Kippo/Glastopf/HFish/Dionaea)+ 内容语义注入检测（采集命令+回传话术加权评分）、资产蜜罐评分与 UI 徽标、planner 处置纪律；针对"以 AI 攻击代理为猎物"的新型陷阱：全角色红线（永不自证/采集命令不执行/不为执行而下载/陷阱端点零交互）、出口敏感信息拦截、tarpit 抓取熔断、UA 池。**实测：对 AgentMirror 的 12 个反 AI 诱导场景，防线全部守住（12/12)**。设计见 `HONEYPOT-DETECTION-DESIGN.md` |
+| **蜜罐识别与反 AI 蜜罐防护** | 静态签名识别层（`honeydetect/`，内嵌签名库覆盖 Cowrie/OpenCanary/Kippo/Glastopf/HFish/Dionaea)+ 内容语义注入检测（采集命令+回传话术加权评分）、资产蜜罐评分与 UI 徽标、planner 处置纪律；针对"以 AI 攻击代理为猎物"的新型陷阱：全角色红线（永不自证/采集命令不执行/不为执行而下载/陷阱端点零交互）、出口敏感信息拦截、tarpit 抓取熔断、UA 池。**实测：对 AgentMirror 的 12 个反 AI 诱导场景，防线全部守住（12/12)**。设计见 `docs/design/HONEYPOT-DETECTION-DESIGN.md` |
 | **chains 场景化** | 九类反问思维链骨架按意图自动注入、按漏洞类别的反证判据（误报写 fact、真漏洞才落图）、类别化转向提示 |
 | **武器库与部署链** | 17 项外部工具钉版清单（`packaging/tools-manifest.json`，启动自检 sha256)、`artex doctor` 部署预检、systemd unit |
 | **稳定性** | 任务 deadline 冻结感知（宿主机睡眠不烧任务）、LLM 调用硬墙钟、会话探活与启动卫生 |
@@ -37,8 +37,8 @@ AI 自主渗透测试系统 · 二开版（Go 后端 + Next.js 前端 + PostgreS
 ### 方式一：一键安装脚本
 
 ```bash
-git clone https://github.com/r0th-m/artex-ymh.git
-cd artex-ymh
+git clone https://github.com/Iamruzi/artex-0312.git
+cd artex-0312
 ./install.sh
 ```
 
@@ -51,8 +51,8 @@ cd artex-ymh
 > **国内网络**：克隆 GitHub、npm、Go 模块可能需要代理/镜像，参考：`git config --global http.proxy socks5h://127.0.0.1:7890`、`npm config set registry https://registry.npmmirror.com`、`go env -w GOPROXY=https://goproxy.cn,direct`。
 
 ```bash
-git clone https://github.com/r0th-m/artex-ymh.git
-cd artex-ymh
+git clone https://github.com/Iamruzi/artex-0312.git
+cd artex-0312
 # 1) 前端静态导出
 cd web && npm ci && npm run build:static && cd ..
 # 2) 拷进内嵌目录(全新克隆下若报目录不存在,先 mkdir -p server/webui/dist)
@@ -80,8 +80,8 @@ journalctl -u artex -f
 仓库的 `docker-compose.yml` 已配置为**从源码构建二开版镜像**(`Dockerfile.source`：前端构建 → Go 编译 → 工具运行时，全部在 Docker 内完成，宿主无需 Go/Node):
 
 ```bash
-git clone https://github.com/r0th-m/artex-ymh.git
-cd artex-ymh
+git clone https://github.com/Iamruzi/artex-0312.git
+cd artex-0312
 cp .env.example .env   # 填 POSTGRES_PASSWORD(不要用 # 字符)
 docker compose up -d --build
 ```
@@ -216,14 +216,19 @@ ARTEX 是一套 **LLM 多 agent 驱动的自主渗透系统**:Go 单体后端（
 
 ## 文档索引
 
+官方原版通过 `upstream/v0.3.12`、`upstream/v0.3.15` 标签保存，`main` 维护二开集成版。版本来源、切换方法与目录约定见 [仓库与版本管理](docs/REPOSITORY.md)。
+
 | 文档 | 内容 |
 | --- | --- |
-| `README-FORK.md` | 二开完整说明（与上游关系、新增能力清单、验证情况） |
-| `HONEYPOT-DETECTION-DESIGN.md` | 蜜罐识别模块调研与设计（含反 AI 代理蜜罐） |
-| `HONEYPOT-DETECTION-DESIGN.md` | 蜜罐识别模块调研与设计（含反 AI 代理蜜罐） |
-| `INTRANET-PIVOT-DESIGN.md` | 内网作战子系统设计 |
-| `CHAINS-INTEGRATION-DESIGN.md` | chains 场景化激活设计 |
-| `POSTMORTEM-RED-SUN-3.md` / `AB-REPORT-RED-SUN-3.md` | 红日靶场 3 实战复盘 |
+| [仓库与版本管理](docs/REPOSITORY.md) | 官方快照来源、tag 使用与清理约定 |
+| [质量整合说明](INTEGRATION.md) | 已吸收的上游改进及验证限制 |
+| [后续路线](docs/ROADMAP.md) | 二开路线与已知问题 |
+| [二开说明](README-FORK.md) | 与上游关系、新增能力清单、验证情况 |
+| [蜜罐识别设计](docs/design/HONEYPOT-DETECTION-DESIGN.md) | 蜜罐识别模块调研与设计（含反 AI 代理蜜罐） |
+| [内网作战设计](docs/design/INTRANET-PIVOT-DESIGN.md) | 内网作战子系统设计 |
+| [chains 接入设计](docs/design/CHAINS-INTEGRATION-DESIGN.md) | chains 场景化激活设计 |
+| [分布式设计](docs/design/DISTRIBUTED-DESIGN.md) | 分布式执行与节点规划 |
+| [实战复盘](docs/reports/POSTMORTEM-RED-SUN-3.md) / [A/B 报告](docs/reports/AB-REPORT-RED-SUN-3.md) | 红日靶场 3 实战记录 |
 
 ## 许可与免责声明
 
