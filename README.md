@@ -26,6 +26,8 @@ AI 自主渗透测试系统 · 二开版（Go 后端 + Next.js 前端 + PostgreS
 
 本次质量整合、可选功能启用方式与验证边界见 [INTEGRATION.md](INTEGRATION.md)。
 
+安全技能已扩充至 20 个，新增来源、ARTEX 接入方式和验证记录见 [SKILLS.md](SKILLS.md)。
+
 ---
 
 ## 安装

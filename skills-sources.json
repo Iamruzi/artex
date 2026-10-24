@@ -1,0 +1,586 @@
+{
+  "schema_version": 1,
+  "integration_date": "2026-10-24",
+  "skills": [
+    {
+      "name": "ai-jailbreak",
+      "repository": "NoorQureshi/security-skills",
+      "commit": "ee0e0c50d2f6d941a14b73dd85a2b470d0ab976e",
+      "upstream_path": "skills/ai-ml/ai-jailbreak",
+      "license": "MIT",
+      "recommended_agents": [
+        "auto",
+        "pentest"
+      ],
+      "upstream_files_reviewed": [
+        {
+          "path": "SKILL.md",
+          "sha256": "6f477094882f425796598529a8bd1f5549db91a0933c2a79ae0d4c12d04de840",
+          "bytes": 2414
+        },
+        {
+          "path": "UPSTREAM-LICENSE",
+          "sha256": "4829838f293d51a0193d66ad1454ec3df10194bac8403ee5ea366f7b9ca4f6af",
+          "bytes": 1069
+        },
+        {
+          "path": "UPSTREAM-NOTICE.md",
+          "sha256": "62fa0af47a9f8f59162e784da47ccd6001dfdafcd71cea7d6aa52a3b4591e95f",
+          "bytes": 1856
+        }
+      ],
+      "adaptations": [
+        "New ARTEX entrypoint and screenshot alias; upstream instructions retained as reference."
+      ]
+    },
+    {
+      "name": "code-diff-security-review",
+      "repository": "trailofbits/skills",
+      "commit": "196a9073ab10d35bacf111f945e02c00b2c6883a",
+      "upstream_path": "plugins/differential-review/skills/differential-review",
+      "license": "CC-BY-SA-4.0",
+      "recommended_agents": [
+        "auto",
+        "pentest",
+        "worker"
+      ],
+      "upstream_files_reviewed": [
+        {
+          "path": "adversarial.md",
+          "sha256": "3cb823f38c6e551cbcf5f72325d2bb219dacdad774072519c31d50d92db19800",
+          "bytes": 5062
+        },
+        {
+          "path": "agents/openai.yaml",
+          "sha256": "0279d56f88dc1a04d4b1941a25fa7672912a3ceb0557b13c38d069908b30ae61",
+          "bytes": 245
+        },
+        {
+          "path": "assets/trail-of-bits-mark.svg",
+          "sha256": "4bf74c789b38dcf6ad762c136b6832363d27ae19fbaa9a18ec18d66ecce6ca05",
+          "bytes": 3084
+        },
+        {
+          "path": "methodology.md",
+          "sha256": "16b335d24cf2145e3dc4a37f50056550d29db2efa20e6df78fec95ec1e6fb0b4",
+          "bytes": 6738
+        },
+        {
+          "path": "patterns.md",
+          "sha256": "52abb18abbc73502a3d3b2f36a7a035adc1db40fd812d1d5424cf065036a06e9",
+          "bytes": 6999
+        },
+        {
+          "path": "reporting.md",
+          "sha256": "0016876dc6f158e926448bff1b6f634796757c7afe09dff177cfe30250724fc4",
+          "bytes": 7006
+        },
+        {
+          "path": "SKILL.md",
+          "sha256": "f9af6a8193fc1a9f8ca3c54bb8d19095a5f20c9472ca6d014488bbde50b67da0",
+          "bytes": 7439
+        }
+      ],
+      "adaptations": [
+        "New ARTEX entrypoint and screenshot alias; upstream instructions retained as reference."
+      ]
+    },
+    {
+      "name": "code-semgrep-audit",
+      "repository": "trailofbits/skills",
+      "commit": "196a9073ab10d35bacf111f945e02c00b2c6883a",
+      "upstream_path": "plugins/static-analysis/skills/semgrep",
+      "license": "CC-BY-SA-4.0",
+      "recommended_agents": [
+        "auto",
+        "pentest",
+        "worker"
+      ],
+      "upstream_files_reviewed": [
+        {
+          "path": "agents/openai.yaml",
+          "sha256": "b200a52900687f8176cb5d8230a29e5e80c8317337efcdcf87754e892129cd89",
+          "bytes": 229
+        },
+        {
+          "path": "assets/trail-of-bits-mark.svg",
+          "sha256": "4bf74c789b38dcf6ad762c136b6832363d27ae19fbaa9a18ec18d66ecce6ca05",
+          "bytes": 3084
+        },
+        {
+          "path": "references/rulesets.md",
+          "sha256": "e641bf7b2f32cd81b2623759f72a560dd96f6747f1295157f2984fe8ebac3f74",
+          "bytes": 7695
+        },
+        {
+          "path": "references/scan-modes.md",
+          "sha256": "99ed0ffb9e9ee68bcb175da469f1310f28f96e356c69c65918a0afc430027d3d",
+          "bytes": 8713
+        },
+        {
+          "path": "scripts/merge_sarif.py",
+          "sha256": "8b6094e18a0e4d36250c72c81903edac914552df7eb2a7eebd1ac449d105f7ba",
+          "bytes": 14034
+        },
+        {
+          "path": "scripts/run-scans.sh",
+          "sha256": "ac3d815dbd5cdfa0419596411058378ab659bd243c7dc87495114e773aa40347",
+          "bytes": 34393
+        },
+        {
+          "path": "scripts/test_merge_sarif.py",
+          "sha256": "8f235bface6ff37f813c1a44b2a6c2edf273cd548b95b770c362f0a443473c75",
+          "bytes": 22943
+        },
+        {
+          "path": "SKILL.md",
+          "sha256": "52162605593f871cf45f48f9cf00b7c2d7e0759ccb7507981088442b7cc5d76c",
+          "bytes": 15678
+        },
+        {
+          "path": "workflows/scan-workflow.md",
+          "sha256": "ddb630d34a51a749157140d71fd05044b09301352126f2c169a3119d5eb1d1a4",
+          "bytes": 24630
+        }
+      ],
+      "adaptations": [
+        "New ARTEX entrypoint and screenshot alias; upstream instructions retained as reference."
+      ]
+    },
+    {
+      "name": "code-variant-analysis",
+      "repository": "trailofbits/skills",
+      "commit": "196a9073ab10d35bacf111f945e02c00b2c6883a",
+      "upstream_path": "plugins/variant-analysis/skills/variant-analysis",
+      "license": "CC-BY-SA-4.0",
+      "recommended_agents": [
+        "auto",
+        "pentest",
+        "worker"
+      ],
+      "upstream_files_reviewed": [
+        {
+          "path": "agents/openai.yaml",
+          "sha256": "6d6b67250ba8300e79491ac12e73262f54f2bf50776276fd04607ae4e3006fde",
+          "bytes": 247
+        },
+        {
+          "path": "assets/trail-of-bits-mark.svg",
+          "sha256": "4bf74c789b38dcf6ad762c136b6832363d27ae19fbaa9a18ec18d66ecce6ca05",
+          "bytes": 3084
+        },
+        {
+          "path": "references/reporting.md",
+          "sha256": "07a1d8f25537ec3da44b7c6e484bf922ab2eeaee733ced6df423df7bea517906",
+          "bytes": 1547
+        },
+        {
+          "path": "references/root-cause.md",
+          "sha256": "b4556f22adadc894b22c8df01d98bb94596d4e035386c780fbca73594014660c",
+          "bytes": 4209
+        },
+        {
+          "path": "references/searching.md",
+          "sha256": "22834e63e7412220feec9bd1d4cfd9298c17679489ad66d13be450928bf5d158",
+          "bytes": 4585
+        },
+        {
+          "path": "references/triage.md",
+          "sha256": "f1f0277096ae41641be311c783f2f7a1c677c2c6b6e8a485986d8d5ed7fa3653",
+          "bytes": 3587
+        },
+        {
+          "path": "resources/codeql/cpp.ql",
+          "sha256": "efd574081969d2bdd19e1756302d843fdbf936968a72de62eb24d66db43efc0c",
+          "bytes": 3503
+        },
+        {
+          "path": "resources/codeql/go.ql",
+          "sha256": "d3fa419af29bb15bf81510c54bc1ce0cf55f5b7adbdbf79cc2c8cd922d2365fb",
+          "bytes": 2018
+        },
+        {
+          "path": "resources/codeql/java.ql",
+          "sha256": "ee4a92a5cbde67304d17a2c5fb739fe9acf1d39ebac9406e3d3a2c1cbbbb19c1",
+          "bytes": 2365
+        },
+        {
+          "path": "resources/codeql/javascript.ql",
+          "sha256": "b6ceaa3acb6ba6fa89903c14c8fd3aa7cf48316e6b2588dcacae51bb423b3526",
+          "bytes": 1733
+        },
+        {
+          "path": "resources/codeql/python.ql",
+          "sha256": "135ec55760e1e827065e34b002c6d954b4c4293d07233a93d7ff31d9d97528a9",
+          "bytes": 2447
+        },
+        {
+          "path": "resources/semgrep/cpp.yaml",
+          "sha256": "41f034c9a5967cc3b87bf5880243ed21f633017111489ee843dd5d002271b10a",
+          "bytes": 2795
+        },
+        {
+          "path": "resources/semgrep/go.yaml",
+          "sha256": "8a8257eb8e0a7150cb7dffa2b64813691fd560de24b0f85fa6640ec2bfc6595f",
+          "bytes": 1797
+        },
+        {
+          "path": "resources/semgrep/java.yaml",
+          "sha256": "5be3990b052bc9ce5e1aa203d1f3c93cb3cde7d46eba463c24c661fc6b342902",
+          "bytes": 2011
+        },
+        {
+          "path": "resources/semgrep/javascript.yaml",
+          "sha256": "2f97e3545fcac449820c2d058bcb9cc36822e238b6249efa3a5dcb4f5f576912",
+          "bytes": 1715
+        },
+        {
+          "path": "resources/semgrep/python.yaml",
+          "sha256": "c1ce15574569d45555d582707db030b226763d81b2d521d9e61d6067440948f2",
+          "bytes": 2002
+        },
+        {
+          "path": "resources/variant-report-template.md",
+          "sha256": "03333c762318a89dd819784a62695f7660713479a5009a15189314400836202f",
+          "bytes": 1356
+        },
+        {
+          "path": "SKILL.md",
+          "sha256": "7b6b78e499bcb88d05c68254ffc91ebc28edabf4e9808adcc40e2628ebb9407e",
+          "bytes": 3903
+        }
+      ],
+      "adaptations": [
+        "New ARTEX entrypoint and screenshot alias; upstream instructions retained as reference."
+      ]
+    },
+    {
+      "name": "pentest-plan",
+      "repository": "OneWave-AI/claude-skills",
+      "commit": "b2267d9171af4f56848d82992381b20b89b44056",
+      "upstream_path": "security-pentest-planner",
+      "license": "MIT",
+      "recommended_agents": [
+        "planner",
+        "mainagent",
+        "auto",
+        "pentest"
+      ],
+      "upstream_files_reviewed": [
+        {
+          "path": "references/plan-template.md",
+          "sha256": "1f9b01b6445ee74a6afe6b35ddbf05c9308ef59e0425b8115284d19fe137745c",
+          "bytes": 52827
+        },
+        {
+          "path": "references/recon-commands.md",
+          "sha256": "0e356ccf08d65ec32de3e6dda0440543e1b3ad3a01a8ffd28092a51d7d815fb2",
+          "bytes": 4627
+        },
+        {
+          "path": "SKILL.md",
+          "sha256": "4a8d059d4386391d6cd582d47cc1744864a18a214c680bd8c6d3001474a3f9fc",
+          "bytes": 3901
+        },
+        {
+          "path": "UPSTREAM-LICENSE",
+          "sha256": "197dce10493396d12cd5e7e6d424d01a794bebe20135bdc0bbc10c0feab1d460",
+          "bytes": 1067
+        }
+      ],
+      "adaptations": [
+        "New ARTEX entrypoint and screenshot alias; upstream instructions retained as reference."
+      ]
+    },
+    {
+      "name": "web-browser-testing",
+      "repository": "anthropics/skills",
+      "commit": "dbd4588f9e1033efb41dad4bef2f7947c8993d44",
+      "upstream_path": "skills/webapp-testing",
+      "license": "Apache-2.0",
+      "recommended_agents": [
+        "auto",
+        "pentest",
+        "worker"
+      ],
+      "upstream_files_reviewed": [
+        {
+          "path": "examples/console_logging.py",
+          "sha256": "ea46877289acb82da7e7ce59d0bc37c8977cd57e2a006d0c88d7a1c625bf95da",
+          "bytes": 1027
+        },
+        {
+          "path": "examples/element_discovery.py",
+          "sha256": "d63c89604a22f8845d724e95dda45db49b1bf57c25ce0a83afbb7b8da3d402f0",
+          "bytes": 1463
+        },
+        {
+          "path": "examples/static_html_automation.py",
+          "sha256": "9d533aafb875ee3ab8b8ebf8f5b9003ac8d999da3d09b285cce252e623140064",
+          "bytes": 953
+        },
+        {
+          "path": "LICENSE.txt",
+          "sha256": "bc6b3af2f331cbc7fb0da1344efb2cbe5877a31498b4d70dbc7000f3405a1362",
+          "bytes": 11345
+        },
+        {
+          "path": "scripts/with_server.py",
+          "sha256": "b0dcf4918935b795f4eda9821579b9902119235ff4447f687a30286e7d0925fd",
+          "bytes": 3693
+        },
+        {
+          "path": "SKILL.md",
+          "sha256": "51b7349e77ec63b7744a6f63647e7566a0b4d2e301121cc10e8c2113af6556a2",
+          "bytes": 3913
+        }
+      ],
+      "adaptations": [
+        "New ARTEX entrypoint and screenshot alias; upstream instructions retained as reference.",
+        "Removed one trailing space from the upstream Markdown snapshot; content is unchanged."
+      ]
+    },
+    {
+      "name": "web-pentest-owasp",
+      "repository": "mukul975/Anthropic-Cybersecurity-Skills",
+      "commit": "54a798831d2266a3ca61ce68a7acb80b81160d57",
+      "upstream_path": "skills/performing-web-application-penetration-test",
+      "license": "Apache-2.0",
+      "recommended_agents": [
+        "planner",
+        "auto",
+        "pentest",
+        "worker"
+      ],
+      "upstream_files_reviewed": [
+        {
+          "path": "LICENSE",
+          "sha256": "a941b58ef0ba43a31e24ae7ece1b743a585efed9e37792b9ca063e0798be1cbe",
+          "bytes": 11255
+        },
+        {
+          "path": "references/api-reference.md",
+          "sha256": "71c5af3543fd18434ba79e4e2dc4109b00d79bcfea5135b5dc9db77e44bba2d1",
+          "bytes": 2260
+        },
+        {
+          "path": "scripts/agent.py",
+          "sha256": "d5a1f7f2e6902047092e1e978c5e0dea506281a810e822e130272780fd2e925c",
+          "bytes": 8876
+        },
+        {
+          "path": "SKILL.md",
+          "sha256": "0c1f45f85bdd2ce34bfa2a476cbda205fa2746e41bf50acce9a06d9543ceed99",
+          "bytes": 14046
+        },
+        {
+          "path": "UPSTREAM-LICENSE",
+          "sha256": "a941b58ef0ba43a31e24ae7ece1b743a585efed9e37792b9ca063e0798be1cbe",
+          "bytes": 11255
+        }
+      ],
+      "adaptations": [
+        "New ARTEX entrypoint and screenshot alias; upstream instructions retained as reference.",
+        "Excluded upstream one-shot agent.py; documented the actual reasons in SKILL.md."
+      ]
+    },
+    {
+      "name": "web-pentest-strobes",
+      "repository": "strobes-security/web-pentest-sample",
+      "commit": "101c3fd96e2ffda27886973dea7089b93bc79756",
+      "upstream_path": "",
+      "license": "MIT",
+      "recommended_agents": [
+        "auto",
+        "pentest",
+        "worker"
+      ],
+      "upstream_files_reviewed": [
+        {
+          "path": "BUILDING_SKILLS.md",
+          "sha256": "a46eb80832a0d59bba8a4428647008e9495fff652641058e02241ef9fca2e73f",
+          "bytes": 41079
+        },
+        {
+          "path": "README.md",
+          "sha256": "6c6fa39a7a7174bcce7dadc0abf509977354f9a9dd9392a3ab0c5f6e74a27b3e",
+          "bytes": 5161
+        },
+        {
+          "path": "skill/scripts/comparer.py",
+          "sha256": "097099c4f8c65fcb1668db9aac94a52350ebc11c88c48a7a9acc7c5f59f59cfa",
+          "bytes": 19283
+        },
+        {
+          "path": "skill/scripts/decoder.py",
+          "sha256": "9d2fc9dbdfaad2724d6af2b6caa9acd321877dd2d02afd2539fa10e69d31e818",
+          "bytes": 18892
+        },
+        {
+          "path": "skill/scripts/discover.py",
+          "sha256": "5fe60be373f65d7ed5699b6d2ba08217b904b1d6a0fc6c048dfbe1d3c630e4bb",
+          "bytes": 37711
+        },
+        {
+          "path": "skill/scripts/evidence/.gitkeep",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "bytes": 0
+        },
+        {
+          "path": "skill/scripts/finding.py",
+          "sha256": "c7ad32bd987b20a94167ecd231659fac96ba7cda756cb7bc58d733d20fa81fe6",
+          "bytes": 24532
+        },
+        {
+          "path": "skill/scripts/intruder.py",
+          "sha256": "c977f5f5d2e37c1d261a6ff23731809dc8d2c1e6185389b2904b8c11420c1d98",
+          "bytes": 24215
+        },
+        {
+          "path": "skill/scripts/lib/__init__.py",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "bytes": 0
+        },
+        {
+          "path": "skill/scripts/lib/db.py",
+          "sha256": "4273682d2db82b0278e30bbade0456a42b3e73436677817c1cda65fc433cdb41",
+          "bytes": 7136
+        },
+        {
+          "path": "skill/scripts/lib/http_client.py",
+          "sha256": "b60c6c3d33cd87cfb20d425dadabd143b6250a3798b2b8d7ee11e896a85904ea",
+          "bytes": 8293
+        },
+        {
+          "path": "skill/scripts/lib/output.py",
+          "sha256": "a01b34a305975cc11909e46186ffad6a5a56a3dc7b3c18e7b89e550bea451d8e",
+          "bytes": 2877
+        },
+        {
+          "path": "skill/scripts/lib/parser.py",
+          "sha256": "62c7599ed3deacf92f6c781dd4a89ea580160acc0867cf640064da012bd2264d",
+          "bytes": 3996
+        },
+        {
+          "path": "skill/scripts/lib/payloads.py",
+          "sha256": "33238f1420d0a7b0689ea969aec319a403d209d15f746b8106f4bc88c88bedce",
+          "bytes": 4095
+        },
+        {
+          "path": "skill/scripts/lib/wordlists.py",
+          "sha256": "638ef3b8d29aba35c265f77fae3f3a30ee2b492aebab8b8635c9c4e7d08ed2b6",
+          "bytes": 4424
+        },
+        {
+          "path": "skill/scripts/repeater.py",
+          "sha256": "c9c8dd9aaa5c4500e219782e4b038c793d287ac7f55ccac7f4dfd4b700883c47",
+          "bytes": 24433
+        },
+        {
+          "path": "skill/scripts/reports/.gitkeep",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "bytes": 0
+        },
+        {
+          "path": "skill/scripts/scope.py",
+          "sha256": "33da5301aa6c307d840742a445c68989151cb10604e3b009615f6ff367a447d9",
+          "bytes": 16188
+        },
+        {
+          "path": "skill/scripts/sequencer.py",
+          "sha256": "01383417f71c929b5a75b2c9c210d4f2c8514473f9044d98788c8c18c961e82b",
+          "bytes": 21981
+        },
+        {
+          "path": "skill/scripts/sitemap.py",
+          "sha256": "4df0a7fa2fddde3950b9847c73da48fbcbc47cdf2760dbf1b58dda27f7652978",
+          "bytes": 27938
+        },
+        {
+          "path": "skill/scripts/testcase.py",
+          "sha256": "09819fe44c8ff85a3b877afcf45ed01aca61b17dfd227c807ec41181b07ba654",
+          "bytes": 32308
+        },
+        {
+          "path": "skill/scripts/turbo.py",
+          "sha256": "407a781ee5d9d21ab9766823295e626b22d3c825151e5231d07f195c330206d2",
+          "bytes": 24056
+        },
+        {
+          "path": "skill/scripts/wordlist.py",
+          "sha256": "f5229d2b5adfaabb94b82d99cf4b76419cad3e0bd26f940052d2032e13ca1e6e",
+          "bytes": 15392
+        },
+        {
+          "path": "skill/scripts/wordlists/api-common.txt",
+          "sha256": "5e838411d75cb0b7971c569cbfb146f17203996504466c7bb18de48f52c44ebc",
+          "bytes": 1603
+        },
+        {
+          "path": "skill/scripts/wordlists/dirs-common.txt",
+          "sha256": "24687b0c4ec8164bf7e49221fe76af7311e5fa272f420106048224ed4ca1b0f2",
+          "bytes": 1737
+        },
+        {
+          "path": "skill/scripts/wordlists/extensions-common.txt",
+          "sha256": "5e8ec35578a71db56d876932dd1f20563cf73336156544ed916e407afa19327c",
+          "bytes": 362
+        },
+        {
+          "path": "skill/scripts/wordlists/headers-common.txt",
+          "sha256": "d3ccc009d58b38cbb4c1ac8089c27eceeac121e105fec9aaf826b57733f03006",
+          "bytes": 757
+        },
+        {
+          "path": "skill/scripts/wordlists/params-common.txt",
+          "sha256": "5e89a44bbf94486989a90d4c1f1d24a8a34fa095e9978fa8afaece8c888ca7dc",
+          "bytes": 1878
+        },
+        {
+          "path": "skill/scripts/wordlists/passwords-common.txt",
+          "sha256": "9fa1e5fdb74a3a065255850565ff7b71bd59a9078b6bae345a99c1f23a84841b",
+          "bytes": 1541
+        },
+        {
+          "path": "skill/scripts/wordlists/subdomains-top1000.txt",
+          "sha256": "b62fa2f6baea1cb2dc005102790669431a7d1b08b7fec0c0c792477a6fc32f31",
+          "bytes": 1429
+        },
+        {
+          "path": "skill/scripts/wordlists/usernames-common.txt",
+          "sha256": "17df176c9e7956a58ea7fcccb971aa8e71c12c2ca4d35cbb884267626c97b542",
+          "bytes": 1579
+        },
+        {
+          "path": "SKILL.md",
+          "sha256": "50ac2c8a55b86e2cc937a01cbf9dd97ba7875ce52b3fd5b12d5a830bd05e9b16",
+          "bytes": 44494
+        },
+        {
+          "path": "UPSTREAM-LICENSE",
+          "sha256": "ccf0f85688d1ae02ec52ab3132fa6a1f9c4135efdee3dc13c10b2e6941a10b2c",
+          "bytes": 1073
+        }
+      ],
+      "adaptations": [
+        "New ARTEX entrypoint and screenshot alias; upstream instructions retained as reference.",
+        "HTTP client TLS certificate verification defaults to true."
+      ]
+    }
+  ],
+  "source_hashes": "Hashes describe downloaded upstream snapshots before adaptation, not installed file bytes.",
+  "validation": {
+    "date": "2026-10-24",
+    "loader": "norma v0.4.3",
+    "skills_loaded": 20,
+    "original_skill_files_preserved": 92,
+    "python_ast_files": 25,
+    "strobes_cli_offline_local_http_checks": 19,
+    "semgrep_version": "1.182.1",
+    "semgrep_pytest_passed": 32,
+    "postgres_seed_test_passed": 2,
+    "go_vet_db": "passed",
+    "go_build": "passed",
+    "llm_calls": 0
+  }
+}

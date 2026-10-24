@@ -363,6 +363,17 @@ ON CONFLICT DO NOTHING`, r.kind, r.pattern, r.note); err != nil {
 // that MCP is enabled/configured.
 var builtinSkillVisibility = map[string][]string{
 	"api-recon": {"auto", "pentest", "worker"},
+	// Security skill pack: expose procedures to the roles that can use them.
+	// This does not grant tools/MCPs or change task scope; per-agent opt-outs
+	// remain preserved by the insert-if-absent seed below.
+	"ai-jailbreak":              {"auto", "pentest"},
+	"code-diff-security-review": {"auto", "pentest", "worker"},
+	"code-semgrep-audit":        {"auto", "pentest", "worker"},
+	"code-variant-analysis":     {"auto", "pentest", "worker"},
+	"pentest-plan":              {"planner", "mainagent", "auto", "pentest"},
+	"web-browser-testing":       {"auto", "pentest", "worker"},
+	"web-pentest-owasp":         {"planner", "auto", "pentest", "worker"},
+	"web-pentest-strobes":       {"auto", "pentest", "worker"},
 }
 
 // seedBuiltinSkillVisibility binds the shipped built-in skills to their default
