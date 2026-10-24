@@ -25,6 +25,18 @@ ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`, key
 	return err
 }
 
+// InsertSettingIfAbsent stores a first-use setting without replacing an existing
+// value, even when the caller's earlier read raced another request.
+func (d *DB) InsertSettingIfAbsent(key, value string) (bool, error) {
+	res, err := d.Exec(`INSERT INTO settings(key, value) VALUES ($1, $2)
+ON CONFLICT (key) DO NOTHING`, key, value)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
+}
+
 // DeleteSetting removes a setting row; a missing key is not an error.
 // (F6: refresh token 旋转/登出时删除哈希记录。)
 func (d *DB) DeleteSetting(key string) error {

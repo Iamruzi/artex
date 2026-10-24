@@ -17,13 +17,17 @@ export default function SetupPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [checking, setChecking] = useState(true);
+  const [unavailable, setUnavailable] = useState(false);
 
   useEffect(() => {
     api.authStatus()
       .then(({ initialized }) => {
         if (initialized) router.replace("/login");
       })
-      .catch(() => setError("无法连接到后端服务"))
+      .catch((err) => {
+        setError(err instanceof Error ? err.message : "无法连接到后端服务");
+        setUnavailable(true);
+      })
       .finally(() => setChecking(false));
   }, [router]);
 
@@ -75,9 +79,17 @@ export default function SetupPage() {
       <div className="flex w-full items-center justify-center bg-background p-8 lg:w-2/3">
         <div className="w-full max-w-md space-y-10 py-24 lg:py-32">
           <div className="space-y-4 text-center">
-            <h2 className="text-2xl font-medium tracking-tight">初始化密码</h2>
-            <p className="mx-auto max-w-xl text-muted-foreground">首次使用 ARTEX，请为账户设置一个登录密码（至少 8 位）</p>
+            <h2 className="text-2xl font-medium tracking-tight">{unavailable ? "无法确认初始化状态" : "初始化密码"}</h2>
+            <p className="mx-auto max-w-xl text-muted-foreground">
+              {unavailable ? "后端或数据库暂时不可用，请恢复服务后重试。" : "首次使用 ARTEX，请为账户设置一个登录密码（至少 8 位）"}
+            </p>
           </div>
+          {unavailable ? (
+            <div className="flex flex-col gap-4">
+              <p className="text-center text-sm text-destructive">{error}</p>
+              <Button type="button" onClick={() => window.location.reload()}>重试</Button>
+            </div>
+          ) : (
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
             <div className="space-y-1.5">
               <Label htmlFor="password">新密码</Label>
@@ -107,6 +119,7 @@ export default function SetupPage() {
               {loading ? "保存中..." : "设置密码并登录"}
             </Button>
           </form>
+          )}
         </div>
       </div>
     </div>

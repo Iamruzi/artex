@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
@@ -34,7 +35,21 @@ const (
 	refreshCookiePath = "/api/auth"
 	sseTicketTTL      = time.Minute
 	keyChars          = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	minPasswordRunes  = 8
+	maxPasswordBytes  = 72
 )
+
+const errDataSourceUnavailable = "数据源暂时不可用，请稍后重试"
+
+func validatePassword(pw string) string {
+	if utf8.RuneCountInString(pw) < minPasswordRunes {
+		return fmt.Sprintf("密码长度至少 %d 位", minPasswordRunes)
+	}
+	if len(pw) > maxPasswordBytes {
+		return fmt.Sprintf("密码长度不能超过 %d 字节", maxPasswordBytes)
+	}
+	return ""
+}
 
 // loadOrCreateJWTKey reads the 32-byte signing key from keyDir/jwt.key. keyDir is
 // the project base dir (next to the executable), NOT the browsable workspace root
@@ -170,6 +185,7 @@ func (s *Server) requireAuth(h http.Handler) http.Handler {
 type authKV interface {
 	GetSetting(key string) (value string, ok bool, err error)
 	SetSetting(key, value string) error
+	InsertSettingIfAbsent(key, value string) (bool, error)
 	DeleteSetting(key string) error
 }
 
@@ -360,21 +376,31 @@ func (s *Server) sseTicket(w http.ResponseWriter, r *http.Request) {
 
 // GET /api/auth/status — reports whether the admin password has been initialised.
 func (s *Server) authStatus(w http.ResponseWriter, r *http.Request) {
-	pg := s.pg(w)
+	pg := s.authSettings()
 	if pg == nil {
+		writeErr(w, 503, errDataSourceUnavailable)
 		return
 	}
-	hash, _, _ := pg.GetSetting(authPassKey)
+	hash, _, err := pg.GetSetting(authPassKey)
+	if err != nil {
+		writeErr(w, 503, errDataSourceUnavailable)
+		return
+	}
 	writeJSON(w, 200, map[string]any{"initialized": hash != ""})
 }
 
 // POST /api/auth/init — sets the password for the first time; rejected if already set.
 func (s *Server) authInit(w http.ResponseWriter, r *http.Request) {
-	pg := s.pg(w)
+	pg := s.authSettings()
 	if pg == nil {
+		writeErr(w, 503, errDataSourceUnavailable)
 		return
 	}
-	existing, _, _ := pg.GetSetting(authPassKey)
+	existing, _, err := pg.GetSetting(authPassKey)
+	if err != nil {
+		writeErr(w, 503, errDataSourceUnavailable)
+		return
+	}
 	if existing != "" {
 		writeErr(w, 403, "密码已设置")
 		return
@@ -386,13 +412,22 @@ func (s *Server) authInit(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "密码不能为空")
 		return
 	}
+	if msg := validatePassword(req.Password); msg != "" {
+		writeErr(w, 400, msg)
+		return
+	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
 		writeErr(w, 500, "密码加密失败")
 		return
 	}
-	if err := pg.SetSetting(authPassKey, string(hash)); err != nil {
+	inserted, err := pg.InsertSettingIfAbsent(authPassKey, string(hash))
+	if err != nil {
 		writeErr(w, 500, "保存失败: "+err.Error())
+		return
+	}
+	if !inserted {
+		writeErr(w, 403, "密码已设置")
 		return
 	}
 	s.issueSession(w, r, pg)
@@ -402,8 +437,9 @@ func (s *Server) authInit(w http.ResponseWriter, r *http.Request) {
 // token (this route is under /api/auth/* which requireAuth exempts, so the token
 // is validated here) AND the current password.
 func (s *Server) authChangePassword(w http.ResponseWriter, r *http.Request) {
-	pg := s.pg(w)
+	pg := s.authSettings()
 	if pg == nil {
+		writeErr(w, 503, errDataSourceUnavailable)
 		return
 	}
 	if !s.validAccessToken(extractToken(r)) {
@@ -422,7 +458,15 @@ func (s *Server) authChangePassword(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "新密码不能为空")
 		return
 	}
-	hash, ok, _ := pg.GetSetting(authPassKey)
+	if msg := validatePassword(req.NewPassword); msg != "" {
+		writeErr(w, 400, msg)
+		return
+	}
+	hash, ok, err := pg.GetSetting(authPassKey)
+	if err != nil {
+		writeErr(w, 503, errDataSourceUnavailable)
+		return
+	}
 	if !ok || hash == "" {
 		writeErr(w, 403, "密码未初始化，请先设置密码")
 		return
@@ -502,8 +546,9 @@ func (s *Server) authLogout(w http.ResponseWriter, r *http.Request) {
 
 // POST /api/auth/login — validates username/password and returns a JWT.
 func (s *Server) authLogin(w http.ResponseWriter, r *http.Request) {
-	pg := s.pg(w)
+	pg := s.authSettings()
 	if pg == nil {
+		writeErr(w, 503, errDataSourceUnavailable)
 		return
 	}
 	var req struct {
@@ -518,7 +563,11 @@ func (s *Server) authLogin(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 401, "用户名或密码错误")
 		return
 	}
-	hash, ok, _ := pg.GetSetting(authPassKey)
+	hash, ok, err := pg.GetSetting(authPassKey)
+	if err != nil {
+		writeErr(w, 503, errDataSourceUnavailable)
+		return
+	}
 	if !ok || hash == "" {
 		writeErr(w, 403, "密码未初始化，请先设置密码")
 		return

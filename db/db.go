@@ -20,6 +20,10 @@ import (
 //go:embed schema.sql
 var schemaSQL string
 
+// Leave capacity for administration and other instances. The schema lock holds
+// one connection while seeding obtains another, so this must exceed one.
+const maxOpenConns = 32
+
 const schemaMigrationLockKey int64 = 7337741001
 
 var schemaDeadlockRetryDelays = [...]time.Duration{
@@ -155,6 +159,10 @@ func Open(dsn string) (*DB, error) {
 	if err != nil {
 		return nil, err
 	}
+	sqlDB.SetMaxOpenConns(maxOpenConns)
+	sqlDB.SetMaxIdleConns(maxOpenConns)
+	sqlDB.SetConnMaxLifetime(30 * time.Minute)
+	sqlDB.SetConnMaxIdleTime(5 * time.Minute)
 	if err := sqlDB.Ping(); err != nil {
 		sqlDB.Close()
 		return nil, fmt.Errorf("ping postgres (%s): %w", config.Redact(dsn), err)

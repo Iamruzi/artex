@@ -25,7 +25,8 @@ function isFullBleed(pathname: string) {
       return pathname;
     }
   })();
-  return p.startsWith("/function/tasks/");
+  const normalized = p.replace(/\/+$/, "");
+  return normalized.startsWith("/function/tasks/");
 }
 
 export function MainContent({ children }: { children: ReactNode }) {

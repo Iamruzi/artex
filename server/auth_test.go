@@ -39,6 +39,19 @@ func (k *memKV) SetSetting(key, value string) error {
 	return nil
 }
 
+func (k *memKV) InsertSettingIfAbsent(key, value string) (bool, error) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	if k.err != nil {
+		return false, k.err
+	}
+	if _, ok := k.m[key]; ok {
+		return false, nil
+	}
+	k.m[key] = value
+	return true, nil
+}
+
 func (k *memKV) DeleteSetting(key string) error {
 	k.mu.Lock()
 	defer k.mu.Unlock()
