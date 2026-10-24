@@ -67,3 +67,7 @@ Files: `agent/noa.go`, `agent/{chat,mainagent,planner,worker}.go`, `server/{mana
 3. 运行 `npx tsc --noEmit` 和静态前端构建。
 4. 更新说明，记录已完成项、默认值、启用方法与验证边界。
 5. 提交最终文档并向用户交付本地工作副本与结果。
+
+## 执行结果
+
+六项已实现，另恢复任务/企业范围上下文。定向 PostgreSQL 测试、核心保留子系统测试、类型/构建/vet 检查完成；27 项领域工具目录及默认绑定与基线完全一致。完整测试并非全绿，失败及视觉验收限制已写入根目录 INTEGRATION.md。

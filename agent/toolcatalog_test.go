@@ -46,6 +46,35 @@ func TestBuiltinToolSeeds(t *testing.T) {
 	}
 }
 
+func TestWorkerReadbackIsAvailableButOptIn(t *testing.T) {
+	ts := NewToolSet(nil, "")
+	available := map[string]bool{}
+	for _, tool := range ts.WorkerTools() {
+		available[tool.Name()] = true
+	}
+	seeds := map[string]ToolSeed{}
+	for _, seed := range BuiltinToolSeeds() {
+		seeds[seed.Key] = seed
+	}
+	for _, key := range []string{"search_all_worker_traces", "get_worker_trace", "node_detail"} {
+		if !available[key] {
+			t.Errorf("%s unavailable to task-bound worker", key)
+		}
+		seed, ok := seeds[key]
+		if !ok {
+			t.Fatalf("missing catalog entry %s", key)
+		}
+		for _, role := range seed.Agents {
+			if role == "worker" {
+				t.Errorf("%s must require explicit worker binding", key)
+			}
+		}
+	}
+	if !available["confirm_fact"] {
+		t.Fatal("fork fact confirmation was removed")
+	}
+}
+
 // TestDecorateToolInjectsDefaults verifies a schema "default" fills a missing param
 // before the underlying handler runs, and an explicitly-provided value is kept.
 func TestDecorateToolInjectsDefaults(t *testing.T) {

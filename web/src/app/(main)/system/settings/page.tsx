@@ -33,6 +33,8 @@ export default function SystemSettingsPage() {
   const [savingGlobalProxy, setSavingGlobalProxy] = React.useState(false);
   const [testing, setTesting] = React.useState(false);
   const [loaded, setLoaded] = React.useState(false);
+  const [noaCompaction, setNoaCompaction] = React.useState(false);
+  const [savingNoa, setSavingNoa] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
   const [savingKey, setSavingKey] = React.useState(false);
   const [pyInterp, setPyInterp] = React.useState("");
@@ -46,6 +48,7 @@ export default function SystemSettingsPage() {
 
   const apply = React.useCallback((s: Settings) => {
     setTrafficCapture(!!s.traffic_capture);
+    setNoaCompaction(!!s.noa_compaction);
     setAgentTrafficBinding(!!s.agent_traffic_binding);
     setWebSearch(!!s.web_search_enabled);
     setBackend(s.web_search_backend || "ddgs");
@@ -58,6 +61,18 @@ export default function SystemSettingsPage() {
     setInjectPlanner(s.constraints_inject_planner !== false);
     setInjectWorker(s.constraints_inject_worker !== false);
   }, []);
+
+  const toggleNoaCompaction = (value: boolean) => {
+    setSavingNoa(true);
+    api
+      .setSettings({ noa_compaction: value })
+      .then((settings) => {
+        apply(settings);
+        toast.success("已保存，对之后启动的运行生效");
+      })
+      .catch((error) => toast.error("保存失败：" + (error as Error).message))
+      .finally(() => setSavingNoa(false));
+  };
 
   const saveWorkers = () => {
     const n = Number(workers);
@@ -249,6 +264,25 @@ export default function SystemSettingsPage() {
           多列则自动按内容高度平衡填充。卡片间距靠 mb 而非 gap——多列布局下
           column-gap 只管列间距，行间距要由子元素自己给。 */}
       <div className="columns-1 gap-4 md:gap-6 lg:columns-2">
+        <Card className="mb-4 break-inside-avoid md:mb-6">
+          <CardHeader>
+            <CardTitle className="text-base">高级 · 会话压缩（实验）</CardTitle>
+            <CardDescription>
+              为长会话使用另一种压缩方式，原文保留供回查。默认关闭，启用后需观察信息保真和消耗。
+              切换对之后启动的运行生效，正在运行的会话继续使用原方式。
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex items-center justify-between gap-4">
+            <Label htmlFor="noa-compaction">noa 会话压缩{noaCompaction ? " · 已开启" : " · 已关闭"}</Label>
+            <Switch
+              id="noa-compaction"
+              checked={noaCompaction}
+              disabled={!loaded || savingNoa}
+              onCheckedChange={toggleNoaCompaction}
+            />
+          </CardContent>
+        </Card>
+
         <UpdateCard />
 
         <Card className="mb-4 break-inside-avoid md:mb-6">
@@ -399,8 +433,8 @@ export default function SystemSettingsPage() {
               记录代理，独立于流量捕获。
               <br />
               来源可选 <b>DuckDuckGo（ddgs）</b>（无需 Key）、<b>Brave（免费版）</b>（需填写 Brave API Key）、{" "}
-              <b>Tavily</b>（需填写 Tavily API Key）或 <b>DeepSeek</b>（复用当前 LLM 配置）。总开关关闭时，各
-              Agent 的网络搜索开关不可用。
+              <b>Tavily</b>（需填写 Tavily API Key）或 <b>DeepSeek</b>（复用当前 LLM 配置）。总开关关闭时，各 Agent
+              的网络搜索开关不可用。
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">

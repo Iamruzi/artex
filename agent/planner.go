@@ -38,6 +38,7 @@ type Planner struct {
 	workDir           string                                 // shared work dir (surfaced in prompt as artifact-output target)
 	injectConstraints func() bool                            // resolver: inject task operation constraints into system prompt? (nil = yes)
 	nonStreamingFn    func() bool                            // resolver: use non-streaming (Complete) path? (nil = streaming)
+	noaEnabledFn      func() bool                            // nil = built-in compaction
 	maxTokensFn       func() int                             // resolver: per-reply output cap (nil/0 = send no cap)
 	compactor         *Compactor                             // cold-node compaction (§7); nil = disabled
 	guard             *guard.Guard                           // optional; nil disables intercept hooks for planner tool calls
@@ -64,6 +65,9 @@ func (p *Planner) SetCompactor(c *Compactor) { p.compactor = c }
 // SetNonStreaming wires a resolver deciding whether runs use the non-streaming
 // model path (true = non-streaming). nil/unset = streaming (default).
 func (p *Planner) SetNonStreaming(fn func() bool) { p.nonStreamingFn = fn }
+
+// SetNoaEnabled selects experimental session compression for subsequent runs.
+func (p *Planner) SetNoaEnabled(fn func() bool) { p.noaEnabledFn = fn }
 
 func (p *Planner) nonStreaming() bool { return p.nonStreamingFn != nil && p.nonStreamingFn() }
 
@@ -447,6 +451,8 @@ func (p *Planner) Plan(ctx context.Context, taskID int64, as *db.AssetStore, ts 
 		opts.Transcript = p.tx
 		opts.SessionID = fmt.Sprintf("exp%d-planner", ts.ID())
 	}
+	noaSession := fmt.Sprintf("exp%d-planner", ts.ID())
+	enableNoa(&opts, p.noaEnabledFn, p.workDir, noaSession, noaWarn(noaSession))
 	// 态势（刚完成的意图 + 完整图）现在拼进本轮 user 输入（见下方 input）。user 里还有
 	// 指令 + 跨唤醒待办（todo 是模型自己的规划便签，可再生，放 user 即可）。
 	// 开场白按「本轮有无具体变动」分两种：有变动 → 指向下方【实际变动】块；无变动

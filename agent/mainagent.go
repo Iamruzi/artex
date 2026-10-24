@@ -33,6 +33,7 @@ type MainAgent struct {
 	steerWork       func(intentID int64, msg string) error // engine callback: steer a running work (nil = off)
 	killWork        func(intentID int64) error             // engine callback: kill a running work (nil = off)
 	nonStreamingFn  func() bool                            // resolver: use non-streaming (Complete) path? (nil = streaming)
+	noaEnabledFn    func() bool                            // nil = built-in compaction
 	maxTokensFn     func() int                             // resolver: per-reply output cap (nil/0 = send no cap)
 	guard           *guard.Guard                           // optional; nil disables intercept hooks for main-agent tool calls
 }
@@ -40,6 +41,9 @@ type MainAgent struct {
 // SetNonStreaming wires a resolver deciding whether runs use the non-streaming
 // model path (true = non-streaming). nil/unset = streaming (default).
 func (m *MainAgent) SetNonStreaming(fn func() bool) { m.nonStreamingFn = fn }
+
+// SetNoaEnabled selects experimental session compression for subsequent runs.
+func (m *MainAgent) SetNoaEnabled(fn func() bool) { m.noaEnabledFn = fn }
 
 func (m *MainAgent) nonStreaming() bool { return m.nonStreamingFn != nil && m.nonStreamingFn() }
 
@@ -187,6 +191,11 @@ func (m *MainAgent) Chat(ctx context.Context, taskID int64, mainSeg int, as *db.
 			opts.SessionID = fmt.Sprintf("exp%d-main-s%d", ts.ID(), mainSeg)
 		}
 	}
+	noaSession := fmt.Sprintf("exp%d-main", ts.ID())
+	if mainSeg > 0 {
+		noaSession = fmt.Sprintf("exp%d-main-s%d", ts.ID(), mainSeg)
+	}
+	enableNoa(&opts, m.noaEnabledFn, m.workDir, noaSession, noaWarn(noaSession))
 	ctx = attachSideCapture(ctx, &opts)
 	s := agentcore.NewSession(opts)
 	defer s.Close()

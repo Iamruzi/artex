@@ -42,6 +42,9 @@ func TestAutoAllowKeepsDenyEnforced(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// IsToolEnabled loaded the interceptor cache before these rules were added.
+	// Match the management API's CRUD contract: invalidate after direct DB writes.
+	ic.Invalidate()
 	t.Cleanup(func() {
 		_ = d.DeleteInterceptRule(denyRule.ID)
 		_ = d.DeleteInterceptRule(askRule.ID)

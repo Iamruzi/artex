@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -37,13 +38,17 @@ func TestAddOneIntentChainTags(t *testing.T) {
 	if err != nil || n == nil {
 		t.Fatalf("取意图节点: %v", err)
 	}
-	payload := string(n.Payload)
-	if !strings.Contains(payload, `"chain_tags":["web","priv"]`) {
-		t.Fatalf("payload 应含规整后的 chain_tags, got: %s", payload)
+	// PostgreSQL JSONB normalizes insignificant whitespace. Assert values rather
+	// than the encoder's compact formatting.
+	var payload struct {
+		ChainTags []string `json:"chain_tags"`
+		Summary   string   `json:"summary"`
 	}
-	// 原有字段不受影响
-	if !strings.Contains(payload, `"summary"`) {
-		t.Fatalf("payload 缺 summary: %s", payload)
+	if err := json.Unmarshal(n.Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload.ChainTags) != 2 || payload.ChainTags[0] != "web" || payload.ChainTags[1] != "priv" || payload.Summary == "" {
+		t.Fatalf("payload 标签或原字段不正确: %s", n.Payload)
 	}
 }
 

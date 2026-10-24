@@ -33,6 +33,7 @@ type ChatAgent struct {
 	webSearch      WebSearchOpts
 	guard          *guard.Guard // optional; nil disables intercept hooks for chat
 	nonStreamingFn func() bool  // resolver: use non-streaming (Complete) path? (nil = streaming)
+	noaEnabledFn   func() bool  // nil = built-in compaction
 	maxTokensFn    func() int   // resolver: per-reply output cap (nil/0 = send no cap)
 }
 
@@ -43,6 +44,9 @@ func NewChatAgent(prov llm.Provider, model, workDir string, tx *transcript.Store
 // SetNonStreaming wires a resolver deciding whether chat runs use the
 // non-streaming model path (true = non-streaming). nil/unset = streaming.
 func (c *ChatAgent) SetNonStreaming(fn func() bool) { c.nonStreamingFn = fn }
+
+// SetNoaEnabled selects experimental session compression for subsequent runs.
+func (c *ChatAgent) SetNoaEnabled(fn func() bool) { c.noaEnabledFn = fn }
 
 func (c *ChatAgent) nonStreaming() bool { return c.nonStreamingFn != nil && c.nonStreamingFn() }
 
@@ -163,6 +167,7 @@ func (c *ChatAgent) Chat(ctx context.Context, agentKey, sessionID, message strin
 		opts.Transcript = c.tx
 		opts.SessionID = sessionID
 	}
+	enableNoa(&opts, c.noaEnabledFn, c.workDir, "chat-"+sessionID, noaWarn("chat-"+sessionID))
 	ctx = attachSideCapture(ctx, &opts)
 	s := agentcore.NewSession(opts)
 	defer s.Close()

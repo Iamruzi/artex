@@ -38,8 +38,8 @@ func builtinToolsByAgent() map[string][]actool.CoreTool {
 		// cancel_intent 不在 PlannerTools()(tools.go)里——它是 planner 装配层
 		// (Plan 的 capFrontierTools)追加的工具;seed 这里补上,DB 绑定才覆盖 planner,
 		// 运行时 ToolResolve 才不会把它从 planner 的工具列表里丢掉。
-		"planner":   append(ts.PlannerTools(), ts.cancelIntentTool()),
-		"worker":    ts.WorkerTools(),
+		"planner": append(ts.PlannerTools(), ts.cancelIntentTool()),
+		"worker":  defaultWorkerToolBindings(ts.WorkerTools()),
 		// goals（目标拆解器）默认绑 set_goals + set_constraints：靠它们把拆出的目标、
 		// 抽出的操作约束写进库。与 mainagent 共用同一受管工具，web 端可改描述/schema、按 agent 勾选。
 		"goals": {ts.setGoals(), ts.setConstraints()},
@@ -50,6 +50,20 @@ func builtinToolsByAgent() map[string][]actool.CoreTool {
 		// 新库由此 seed 写入；老库由 seedPentestDefaultBindings 迁移。
 		"pentest": {ts.listAssets(), ts.insertAssets(), ts.addFinding(), ts.listFindings(), ts.listCompanies()},
 	}
+}
+
+// Preserve the fork's default role boundary while allowing users to opt into
+// task-bound readback instances through the existing tool management page.
+func defaultWorkerToolBindings(tools []actool.CoreTool) []actool.CoreTool {
+	out := make([]actool.CoreTool, 0, len(tools))
+	for _, tool := range tools {
+		switch tool.Name() {
+		case "search_all_worker_traces", "get_worker_trace", "node_detail":
+			continue
+		}
+		out = append(out, tool)
+	}
+	return out
 }
 
 // defaultUnbound：这些 system 工具会照常入目录（web 端可见、可手动按 agent 勾选），但

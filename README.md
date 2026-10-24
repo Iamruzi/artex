@@ -24,6 +24,8 @@ AI 自主渗透测试系统 · 二开版（Go 后端 + Next.js 前端 + PostgreS
 
 详细二开说明见 `README-FORK.md`。
 
+本次质量整合、可选功能启用方式与验证边界见 [INTEGRATION.md](INTEGRATION.md)。
+
 ---
 
 ## 安装

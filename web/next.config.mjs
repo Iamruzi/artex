@@ -5,9 +5,14 @@ import { fileURLToPath } from "node:url";
 const isExport = process.env.NEXT_EXPORT === "1";
 // Vercel demo：整站走 mock，无后端，无需 /api 反代。
 const isMock = process.env.NEXT_PUBLIC_MOCK === "1";
+// Keep build workers within small-machine memory budgets; runtime concurrency is
+// unaffected. Large builders can explicitly raise ARTEX_BUILD_CPUS.
+const requestedBuildCpus = Number.parseInt(process.env.ARTEX_BUILD_CPUS ?? "2", 10);
+const buildCpus = Number.isFinite(requestedBuildCpus) && requestedBuildCpus > 0 ? requestedBuildCpus : 2;
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  experimental: { cpus: buildCpus },
   // 避免父目录的 lockfile 影响根目录推断及资源路径生成。
   turbopack: { root: fileURLToPath(new URL(".", import.meta.url)) },
   reactCompiler: true,

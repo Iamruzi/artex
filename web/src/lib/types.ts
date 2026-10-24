@@ -427,6 +427,28 @@ export interface TaskNode {
   delete_reason?: string; // 意图假删除(state='deleted')时的删除原因
 }
 
+// 播报板一页:按创建顺序分页的节点 + 这一页涉及的边 + 边另一端的节点(refs,按 id 索引),
+// 这样每条播报都能说清「从哪来、产出了什么」,而不用把整张图拉下来。
+export interface ExplorationNodePage {
+  items: TaskNode[];
+  total: number;
+  page: number;
+  size: number;
+  edges: Edge[];
+  refs: Record<string, TaskNode>;
+  // 节点 id → 该节点锚定的资产(播报板展开时顺带展示,含本页节点与其邻居)。
+  assets: Record<string, FindingAsset[]>;
+}
+
+export interface ExplorationNodeQuery {
+  page?: number;
+  size?: number;
+  kinds?: ExploreKind[];
+  states?: string[];
+  q?: string;
+  order?: "asc" | "desc";
+}
+
 // 目标管理卡片用的目标(后端已把 payload 拆成 text/vulnclass)。
 export interface TaskGoal {
   id: string;
@@ -920,6 +942,7 @@ export interface Settings {
   // 操作约束注入范围(默认都开):把任务的 allow/deny 约束拼进对应 agent 的系统提示。
   constraints_inject_planner?: boolean;
   constraints_inject_worker?: boolean;
+  noa_compaction?: boolean; // experimental, defaults off; applied per run
   // ---- 漏洞 IM 推送（渠道本身是独立资源，见 /api/notify/*，这里只有三项全局配置）----
   notify_enabled?: boolean; // 推送总开关，默认开；用于维护期一键止血
   notify_public_base_url?: string; // 漏洞详情回链的外部访问地址；空=消息不带回链

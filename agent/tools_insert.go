@@ -681,9 +681,10 @@ func (t *ToolSet) WorkerTools() []actool.CoreTool {
 		// asset management (handlers guard nil store internally)。
 		// add_company_scope 不给 worker：定义企业资产范围属规划/主控/Auto 的职责，worker 只执行探索。
 		t.insertAssets(), t.listAssets(),
-		// 以下工具【不给】worker，只留给 planner/main（读上下文、跨 work 复盘是规划职责，
-		// worker 只做单条意图的执行与写回）：list_facts / node_detail / list_companies /
-		// 跨 work 检索 search_all_worker_traces / list_worker_traces / get_worker_trace。
+		// 可选回看：装配当前任务的实例，实际可见性由工具页的 worker 绑定决定。
+		// 新库默认仍不绑定，旧库不强制重绑；启用后只查本任务及显式继承来源。
+		t.searchAllWorkerTraces(), t.getWorkerTrace(), t.nodeDetail(),
+		// list_facts/list_companies/list_worker_traces 仍保留给 planner/main。
 	}
 }
 

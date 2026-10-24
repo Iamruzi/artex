@@ -442,7 +442,7 @@ func (t *ToolSet) graphOverviewData() map[string]any {
 	// via node_detail(id).
 	vulnNodes, _ := t.ts.ListByKind(db.KindFinding, 1000)
 	factNodes, _ := t.ts.ListByKind(db.KindFact, 1000) // newest first
-	out["facts"] = len(factNodes) // 探索事实/结论数（含否定结论）
+	out["facts"] = len(factNodes)                      // 探索事实/结论数（含否定结论）
 	// findings 是任务里最高价值的产物 → 概览带最新一窗（≤10 条，vulnNodes 已按 id 降序即最新在前），
 	// 让 planner 每轮判目标时一眼看到最近确认的漏洞；全量/更早的用 list_findings 取。
 	// 每条只留 {id, summary, status?, from_intent?}：status 是 triage 状态(pending=待验证,C4)；
@@ -578,6 +578,65 @@ func (t *ToolSet) graphOverviewData() map[string]any {
 						m["pct"] = cov.Pct
 					}
 				}
+			}
+			// scope：当前测试范围的根资产（task_scope 原始行），让 agent 知道这个任务到底
+			// 圈定了哪些目标（不是全部测试资产，而是范围边界本身）。覆盖度开关无关，始终提供。
+			if rows, err := t.as.ListTaskScopeWithSources(t.taskID); err == nil && len(rows) > 0 {
+				scope := make([]map[string]any, 0, len(rows))
+				for _, r := range rows {
+					e := map[string]any{"kind": r.Kind, "source": r.Source, "task_id": r.TaskID}
+					if r.TaskID != t.taskID {
+						inheritedMap(e, r.TaskID)
+					}
+					switch {
+					case r.Domain != "":
+						e["value"] = r.Domain
+					case r.Net != "":
+						e["value"] = r.Net
+					case r.Value != "":
+						e["value"] = r.Value
+					case r.CompanyID != nil:
+						e["company_id"] = *r.CompanyID
+						if t.cs != nil {
+							if company, err := t.cs.GetCompany(*r.CompanyID); err == nil && company != nil {
+								e["company_name"] = company.Name
+							}
+							if rules, err := t.cs.GetScope(*r.CompanyID); err == nil {
+								keywords := make([]string, 0)
+								companyScope := make([]map[string]any, 0, len(rules))
+								for _, rule := range rules {
+									value := rule.Raw
+									if value == "" {
+										switch rule.Kind {
+										case "domain":
+											value = rule.Domain
+										case "ip", "cidr":
+											value = rule.Net
+										default:
+											value = rule.Value
+										}
+									}
+									entry := map[string]any{"kind": rule.Kind, "value": value}
+									if rule.Reason != "" {
+										entry["reason"] = rule.Reason
+									}
+									companyScope = append(companyScope, entry)
+									if rule.Kind == "keyword" && rule.Raw != "" {
+										keywords = append(keywords, rule.Raw)
+									}
+								}
+								if len(companyScope) > 0 {
+									e["company_scope"] = companyScope
+								}
+								if len(keywords) > 0 {
+									e["company_keywords"] = keywords
+								}
+							}
+						}
+					}
+					scope = append(scope, e)
+				}
+				m["scope"] = scope
 			}
 			if hosts, err := t.as.HostsByTaskWithSources(t.taskID); err == nil {
 				// 只给主机总数，不再把 host 列表平铺进 graph_overview（大范围任务里那是每轮

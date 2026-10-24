@@ -37,6 +37,8 @@ import type {
   DeleteTaskResult,
   Edge,
   EvidenceBodyPreview,
+  ExplorationNodePage,
+  ExplorationNodeQuery,
   Finding,
   FindingAssetTree,
   FindingDeepenResponse,
@@ -722,6 +724,26 @@ export const api = {
       .then(arr)
       .catch(() => [] as ConvTokenSummary[]),
   explorationGraph: (task?: string) => get<{ nodes: TaskNode[]; edges: Edge[] }>(`/exploration/graph${tq(task)}`),
+  // 播报板:服务端按创建顺序分页的探索节点(默认最新在前)。
+  explorationNodes: (task: string, query: ExplorationNodeQuery = {}) => {
+    const q = new URLSearchParams();
+    if (task) q.set("task", task);
+    q.set("page", String(query.page ?? 1));
+    q.set("size", String(query.size ?? 20));
+    if (query.kinds?.length) q.set("kind", query.kinds.join(","));
+    if (query.states?.length) q.set("state", query.states.join(","));
+    if (query.q?.trim()) q.set("q", query.q.trim());
+    if (query.order === "asc") q.set("order", "asc");
+    return get<ExplorationNodePage>(`/exploration/nodes?${q.toString()}`).then((r) => ({
+      items: arr(r.items),
+      total: r.total ?? 0,
+      page: r.page ?? 1,
+      size: r.size ?? query.size ?? 20,
+      edges: arr(r.edges),
+      refs: r.refs ?? {},
+      assets: r.assets ?? {},
+    }));
+  },
   activity: (task?: string, opts?: { intent?: string; since?: number; limit?: number }) => {
     const q = new URLSearchParams();
     if (task) q.set("task", task);
@@ -829,8 +851,7 @@ export const api = {
   // 渠道是多实例资源（同一类型可配多个机器人、各有过滤规则），因此独立成组，
   // 不塞进扁平的 settings 键值里。
   notifyMeta: () => get<NotificationMeta>(`/notify/meta`),
-  notifyChannels: () =>
-    get<{ channels: NotificationChannel[] }>(`/notify/channels`).then((r) => arr(r.channels)),
+  notifyChannels: () => get<{ channels: NotificationChannel[] }>(`/notify/channels`).then((r) => arr(r.channels)),
   notifyCreateChannel: (payload: {
     name: string;
     kind: string;
@@ -877,7 +898,10 @@ export const api = {
     return r.text();
   },
   chatMentions: (kind: string, query: string, signal?: AbortSignal, cursor = "") =>
-    http<{ items: ChatMention[]; next_cursor?: string }>(`/chat/mentions?${new URLSearchParams({ kind, q: query, cursor })}`, { signal }),
+    http<{ items: ChatMention[]; next_cursor?: string }>(
+      `/chat/mentions?${new URLSearchParams({ kind, q: query, cursor })}`,
+      { signal },
+    ),
   chat: (message: string, task?: string, attachments?: ChatAttachment[], seg?: number) =>
     post<{ reply: string; mode: string }>(`/chat${tq(task)}`, { message, attachments, seg }),
   chatStatus: (taskId: string) => get<{ running: boolean }>(`/tasks/${taskId}/chat/status`),
@@ -1218,16 +1242,18 @@ export const api = {
   interceptDecide: (id: number, decision: "allowed" | "denied") =>
     post<{ ok: boolean }>(`/intercept/pending/${id}/decide`, { decision }),
   interceptExecution: (id: number, conversationId?: number) =>
-    get<import("@/lib/types").InterceptExecution>(`/intercept/history/${id}/execution${conversationId ? `?conversation=${conversationId}` : ""}`),
+    get<import("@/lib/types").InterceptExecution>(
+      `/intercept/history/${id}/execution${conversationId ? `?conversation=${conversationId}` : ""}`,
+    ),
   interceptDetail: (id: number) => get<InterceptDetail>(`/intercept/history/${id}`),
   interceptHistory: () => get<{ items: InterceptApprovalRow[] }>("/intercept/history").then((r) => arr(r.items)),
   interceptHistoryPage: (page = 1, size = 20, filter: InterceptApprovalFilter = {}) =>
-    get<{ items: InterceptApprovalRow[]; total?: number }>(`/intercept/history?${interceptPageQuery(page, size, filter)}`).then(
-      (r) => ({
-        items: arr(r.items),
-        total: r.total ?? r.items?.length ?? 0,
-      }),
-    ),
+    get<{ items: InterceptApprovalRow[]; total?: number }>(
+      `/intercept/history?${interceptPageQuery(page, size, filter)}`,
+    ).then((r) => ({
+      items: arr(r.items),
+      total: r.total ?? r.items?.length ?? 0,
+    })),
   interceptTask: (taskId: string) =>
     get<{ items: InterceptApprovalRow[] }>(`/intercept/task/${taskId}`).then((r) => arr(r.items)),
   interceptTaskPage: (taskId: string, page = 1, size = 20, filter: InterceptApprovalFilter = {}) =>
@@ -1269,15 +1295,14 @@ export const api = {
 
   // ---- guard auto-allow (一键放行,带时限的 ask 自动批准) ----
   getAutoAllow: () => get<AutoAllowState>("/guard/auto-allow"),
-  setAutoAllow: (enabled: boolean, hours: number) =>
-    put<AutoAllowState>("/guard/auto-allow", { enabled, hours }),
+  setAutoAllow: (enabled: boolean, hours: number) => put<AutoAllowState>("/guard/auto-allow", { enabled, hours }),
 
   // ---- 待授权网段(引擎在授权边界外探测到的网段,待人工扩权) ----
   // 默认只返回 pending;all=true 含已决(approved/dismissed)。
   pendingScope: (taskId: string, all = false) =>
-    get<{ items: PendingScopeRow[] }>(
-      `/tasks/${encodeURIComponent(taskId)}/pending-scope${all ? "?all=1" : ""}`,
-    ).then((r) => arr(r.items)),
+    get<{ items: PendingScopeRow[] }>(`/tasks/${encodeURIComponent(taskId)}/pending-scope${all ? "?all=1" : ""}`).then(
+      (r) => arr(r.items),
+    ),
   // approve 把网段写入任务 scope,guard 后续放行;dismiss 忽略。
   // 409 = 已被(并发)决定,调用方刷新列表即可。
   decidePendingScope: (id: number, action: "approve" | "dismiss") =>
@@ -1363,8 +1388,7 @@ export const api = {
   // 400 = 无法确定立足点 IP;404 = 会话不存在。
   handoffSession: (id: string) => post<{ task_id: string }>(`/sessions/${encodeURIComponent(id)}/handoff`),
   deleteSession: (id: string) => del<{ ok: boolean }>(`/sessions/${encodeURIComponent(id)}`),
-  tunnels: (taskId?: string) =>
-    get<{ items: TunnelInfo[] }>(`/tunnels${taskQuery(taskId)}`).then((r) => arr(r.items)),
+  tunnels: (taskId?: string) => get<{ items: TunnelInfo[] }>(`/tunnels${taskQuery(taskId)}`).then((r) => arr(r.items)),
   teardownTunnel: (id: string) => post<{ ok: boolean }>(`/tunnels/${encodeURIComponent(id)}/teardown`),
   credentials: (taskId?: string) =>
     get<{ items: Credential[] }>(`/credentials${taskQuery(taskId)}`).then((r) => arr(r.items)),

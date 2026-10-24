@@ -164,7 +164,7 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 		provByProfile:  map[int64]*provEntry{}, llmHealth: newLLMHealthRegistry(m.pg),
 		taskAgents: map[string]*taskAgentBundle{}, archiveWake: make(chan struct{}, 1)}
 	s.initSideQuestions()
-	s.initStage(dataDir) // 受管文件投递暂存(F13);失败降级为关闭,不影响启动
+	s.initStage(dataDir)        // 受管文件投递暂存(F13);失败降级为关闭,不影响启动
 	checkToolsManifest(dataDir) // 期 6 外部工具清单自检(缺失常态,只打汇总日志)
 	// 熔断阈值/冷却是失败路径上的热参数，启动时把全局重试策略推给 Registry 一次；
 	// 之后每次保存策略再推一次（saveLLMRetryPolicy）。
@@ -517,6 +517,7 @@ func (s *Server) applyLLM(cfg agent.Config) error {
 	s.chatAgent.SetWebSearch(s.m.WebSearchOpts())
 	s.chatAgent.SetGuard(s.agentGuard())
 	s.chatAgent.SetNonStreaming(nonStreamingResolver(cfg))
+	s.chatAgent.SetNoaEnabled(s.m.NoaCompactionEnabled)
 	s.chatAgent.SetMaxTokens(maxTokensResolver(cfg))
 	s.llmProv = prov
 	s.llmCfg = cfg
@@ -660,6 +661,7 @@ func (s *Server) chatAgentForProfile(id int64) *agent.ChatAgent {
 	ca.SetWebSearch(s.m.WebSearchOpts())
 	ca.SetGuard(s.agentGuard())
 	ca.SetNonStreaming(nonStreamingResolver(cfg))
+	ca.SetNoaEnabled(s.m.NoaCompactionEnabled)
 	ca.SetMaxTokens(maxTokensResolver(cfg))
 	s.profMu.Lock()
 	if ex := s.profChatAgents[id]; ex != nil { // lost the race → keep the winner
@@ -767,8 +769,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/tasks/{id}/scope", s.taskScopeList)
 	mux.HandleFunc("POST /api/tasks/{id}/scope", s.taskScopeAdd)
 	mux.HandleFunc("DELETE /api/tasks/{id}/scope/{sid}", s.taskScopeDelete)
-	mux.HandleFunc("GET /api/tasks/{id}/pending-scope", s.pendingScopeList)   // 期 4:待授权网段列表
-	mux.HandleFunc("POST /api/pending-scope/{id}/decide", s.pendingScopeDecide) // 期 4:审批扩 scope
+	mux.HandleFunc("GET /api/tasks/{id}/pending-scope", s.pendingScopeList)        // 期 4:待授权网段列表
+	mux.HandleFunc("POST /api/pending-scope/{id}/decide", s.pendingScopeDecide)    // 期 4:审批扩 scope
 	mux.HandleFunc("GET /api/tasks/{id}/goals", s.listGoals)                       // 目标管理:列出本任务全部目标
 	mux.HandleFunc("POST /api/tasks/{id}/goals", s.addGoal)                        // 目标管理:人工新增目标(复活任务)
 	mux.HandleFunc("PATCH /api/tasks/{id}/goals/{gid}", s.editGoal)                // 目标管理:修改目标(复活任务)
@@ -823,6 +825,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/exploration/findings/{id}", s.deleteFinding)
 	mux.HandleFunc("GET /api/exploration/intents", s.intents)
 	mux.HandleFunc("GET /api/exploration/graph", s.explorationGraph)
+	mux.HandleFunc("GET /api/exploration/nodes", s.explorationNodes)
 	mux.HandleFunc("GET /api/exploration/activity", s.activity)
 	mux.HandleFunc("GET /api/exploration/activity/history", s.activityHistory)
 	mux.HandleFunc("GET /api/exploration/main-sessions", s.mainSessions)
@@ -3319,6 +3322,7 @@ func (s *Server) settingsPayload() map[string]any {
 		// 操作约束注入范围(默认都开):把本任务的 allow/deny 约束拼进对应 agent 的系统提示。
 		"constraints_inject_planner": s.constraintInjectPlanner(),
 		"constraints_inject_worker":  s.constraintInjectWorker(),
+		"noa_compaction":             s.m.NoaCompactionEnabled(),
 		// 漏洞 IM 推送的全局项。渠道本身是独立资源，走 /api/notify/* 管理；
 		// 这里只放「作用于全部渠道」的三项。
 		"notify_enabled":             s.m.pg.GetBool(settingNotifyEnabled, true),
@@ -3389,6 +3393,7 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		// 操作约束注入范围开关(默认都开);即时生效(planner/worker 每轮读),无需重建 agent。
 		ConstraintsInjectPlanner *bool `json:"constraints_inject_planner"`
 		ConstraintsInjectWorker  *bool `json:"constraints_inject_worker"`
+		NoaCompaction            *bool `json:"noa_compaction"`
 		// 漏洞 IM 推送的全局项。三者都由投递引擎每轮读一次，改完即时生效，
 		// 不需要重建 agent 或重启。
 		NotifyEnabled    *bool   `json:"notify_enabled"`
@@ -3398,6 +3403,12 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, 400, err.Error())
 		return
+	}
+	if req.NoaCompaction != nil {
+		if err := s.m.SetNoaCompaction(*req.NoaCompaction); err != nil {
+			writeErr(w, 500, err.Error())
+			return
+		}
 	}
 	if req.ConstraintsInjectPlanner != nil {
 		if err := s.m.pg.SetBool(settingConstraintsInjectPlanner, *req.ConstraintsInjectPlanner); err != nil {

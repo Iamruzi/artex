@@ -565,7 +565,8 @@ func (s *Server) agentsForTask(t *Task) *taskAgentBundle {
 	wk.SetFindingRecorder(s.evidenceStore())
 	wk.SetCompactionWindowResolver(workerRuntime.CompactionWindow)
 	wk.SetNonStreaming(workerRuntime.nonStreaming) // 按任务当前激活 profile 的流式开关(每轮读)
-	wk.SetMaxTokens(workerRuntime.maxTokens)       // 同上,输出上限也跟随当前激活 profile
+	wk.SetNoaEnabled(s.m.NoaCompactionEnabled)
+	wk.SetMaxTokens(workerRuntime.maxTokens) // 同上,输出上限也跟随当前激活 profile
 	wk.SetRunTimeout(time.Duration(s.agentRunSeconds("worker")) * time.Second)
 	wk.SetProxy(s.m.ProxyAddr(), s.m.ProxyCACert())
 	wk.SetTaskProxyResolver(s.m.TaskProxyForTask) // 期 3b:按任务 MITM(经隧道时 任务实例→任务 socks)
@@ -577,6 +578,7 @@ func (s *Server) agentsForTask(t *Task) *taskAgentBundle {
 	pl.SetFindingRecorder(s.evidenceStore())
 	pl.SetCompactionWindowResolver(plannerRuntime.CompactionWindow)
 	pl.SetNonStreaming(plannerRuntime.nonStreaming)
+	pl.SetNoaEnabled(s.m.NoaCompactionEnabled)
 	pl.SetMaxTokens(plannerRuntime.maxTokens)
 	pl.SetKillWork(s.engine.KillWork)
 	pl.SetSteerWork(s.engine.SteerWork)
@@ -592,6 +594,7 @@ func (s *Server) agentsForTask(t *Task) *taskAgentBundle {
 	main.SetFindingRecorder(s.evidenceStore())
 	main.SetCompactionWindowResolver(mainRuntime.CompactionWindow)
 	main.SetNonStreaming(mainRuntime.nonStreaming)
+	main.SetNoaEnabled(s.m.NoaCompactionEnabled)
 	main.SetMaxTokens(mainRuntime.maxTokens)
 	main.SetProxy(s.m.ProxyAddr(), s.m.ProxyCACert())
 	main.SetWebSearch(s.webSearchFor("mainagent"))
@@ -599,7 +602,7 @@ func (s *Server) agentsForTask(t *Task) *taskAgentBundle {
 	main.SetKillWork(func(intentID int64) error {
 		return s.engine.KillWorkAs(intentID, agent.AbortKilledByMainagent)
 	}) // kill_work：人立即终止运行中 work(killed_by_mainagent)
-	main.SetGuard(s.agentGuard())         // 审批门:mainagent 的工具调用同样过 PreToolUse 拦截
+	main.SetGuard(s.agentGuard()) // 审批门:mainagent 的工具调用同样过 PreToolUse 拦截
 	bundle := &taskAgentBundle{
 		runtime: goalRuntime, plannerRuntime: plannerRuntime, workerRuntime: workerRuntime,
 		mainRuntime: mainRuntime, pl: pl, wk: wk, main: main,
