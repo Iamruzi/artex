@@ -15,6 +15,13 @@ services:
     restart: unless-stopped
 
   artex:
+    # Local Compose enforcement (not Swarm-only deploy.resources). Tune against
+    # the host budget; reserve RAM for the separate PostgreSQL container.
+    cpus: ${ARTEX_CPU_LIMIT:-2.0}
+    mem_limit: ${ARTEX_MEMORY_LIMIT:-2g}
+    memswap_limit: ${ARTEX_MEMORY_LIMIT:-2g}
+    pids_limit: 256
+    init: true
     # 从源码构建二开版镜像(Dockerfile.source 自包含构建:前端+Go+工具层)。
     # 不要用 autumn27/artex 官方镜像——那是上游原版,不含二开代码。
     build:

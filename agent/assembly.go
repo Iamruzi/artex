@@ -62,7 +62,7 @@ func AugmentTools(ctx context.Context, agentKey string, base []actool.CoreTool) 
 	}
 	out, def.FindingGuidance = findingWorkflowTools(agentKey, out)
 	for i, t := range out {
-		out[i] = guardPanic(t)
+		out[i] = governTool(guardPanic(t))
 	}
 	return out, def, cleanup
 }

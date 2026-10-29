@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/Autumn-27/artex/resourceguard"
 )
 
 // Database is the PostgreSQL connection config. Either set DSN directly, or set
@@ -26,10 +28,11 @@ type Database struct {
 
 // Config is the on-disk config file shape.
 type Config struct {
-	Database        Database `json:"database"`
-	SkillDir        string   `json:"skill_dir"`
-	CallbackAddr    string   `json:"callback_addr"`
-	TunnelPortRange string   `json:"tunnel_port_range"` // 隧道端口池 "min-max"(期 3a)
+	ResourceGuard   resourceguard.Config `json:"resource_guard"`
+	Database        Database             `json:"database"`
+	SkillDir        string               `json:"skill_dir"`
+	CallbackAddr    string               `json:"callback_addr"`
+	TunnelPortRange string               `json:"tunnel_port_range"` // 隧道端口池 "min-max"(期 3a)
 	// TaskProxyPortRange 是按任务 MITM 实例(期 3b)的端口池 "min-max",
 	// 默认 21100-21199,与隧道池(20000-21000)错开。
 	TaskProxyPortRange string `json:"task_proxy_port_range"`

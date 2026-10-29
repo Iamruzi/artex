@@ -14,10 +14,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
 	"github.com/Autumn-27/artex/db"
+	"github.com/Autumn-27/artex/execution"
 	"github.com/Autumn-27/norma/permission"
 	actool "github.com/Autumn-27/norma/tool"
 )
@@ -329,12 +331,17 @@ func ensureSchema(raw json.RawMessage) map[string]any {
 // ---------- command:渲染命令 → 复用 Bash 底层 run ----------
 
 func (s *Server) runCommandTool(ctx context.Context, execRaw json.RawMessage, params map[string]any, tc *actool.ToolContext) (actool.Result, error) {
+	release, admissionErr := s.admitCustomTool(ctx)
+	if admissionErr != nil {
+		return actool.Errorf("resource_blocked: " + admissionErr.Error()), nil
+	}
+	defer release()
 	var spec commandExec
 	_ = json.Unmarshal(execRaw, &spec)
 	if strings.TrimSpace(spec.Command) == "" {
 		return actool.Errorf("command 为空"), nil
 	}
-	cmd := renderTemplate(spec.Command, params, shellQuote)
+	cmd := renderTemplate(spec.Command, params, func(v string) string { return shellQuoteForOS(v, runtime.GOOS) })
 	// 复用 Bash 也在用的底层 run(经 Bash CoreTool.Call):自动继承安全 floor/超时/
 	// 代理 env/输出溢出。工具与 Bash 平级、共用底层,不经过 Bash 这个工具让模型调。
 	bashIn, _ := json.Marshal(map[string]any{"command": cmd})
@@ -349,6 +356,11 @@ func (s *Server) runCommandTool(ctx context.Context, execRaw json.RawMessage, pa
 // ---------- script(仅 Python):临时文件 + stdin JSON + env ----------
 
 func (s *Server) runScriptTool(ctx context.Context, key string, execRaw json.RawMessage, params map[string]any, tc *actool.ToolContext) (actool.Result, error) {
+	release, admissionErr := s.admitCustomTool(ctx)
+	if admissionErr != nil {
+		return actool.Errorf("resource_blocked: " + admissionErr.Error()), nil
+	}
+	defer release()
 	var spec scriptExec
 	_ = json.Unmarshal(execRaw, &spec)
 	if strings.TrimSpace(spec.Code) == "" {
@@ -368,7 +380,7 @@ func (s *Server) runScriptTool(ctx context.Context, key string, execRaw json.Raw
 	}
 	body, err := execPython(ctx, interp, key, spec.Code, params, workDir, sessionEnv, timeoutOr(spec.TimeoutMs, 120000))
 	if err != nil {
-		return actool.Errorf(err.Error()), nil
+		return actool.Errorf(actool.Capture(tc, body) + "\n" + err.Error()), nil
 	}
 	return actool.Text(actool.Capture(tc, body)), nil
 }
@@ -405,19 +417,18 @@ func execPython(ctx context.Context, interp, key, code string, params map[string
 	}
 	pj, _ := json.Marshal(params)
 	c.Stdin = bytes.NewReader(pj) // 参数 JSON 走 stdin
-	out, err := c.CombinedOutput()
-	body := string(out)
-	if runCtx.Err() == context.DeadlineExceeded {
-		body += "\n... [超时终止] ..."
-	} else if err != nil {
-		body += "\n[exit: " + err.Error() + "]"
-	}
-	return body, nil
+	body, err := execution.Run(runCtx, c)
+	return body, err
 }
 
 // ---------- http:原生请求 + 代理 ----------
 
 func (s *Server) runHTTPTool(ctx context.Context, execRaw json.RawMessage, params map[string]any, tc *actool.ToolContext) (actool.Result, error) {
+	release, admissionErr := s.admitCustomTool(ctx)
+	if admissionErr != nil {
+		return actool.Errorf("resource_blocked: " + admissionErr.Error()), nil
+	}
+	defer release()
 	var spec httpExec
 	_ = json.Unmarshal(execRaw, &spec)
 	method := strings.ToUpper(strings.TrimSpace(spec.Method))
@@ -492,6 +503,13 @@ func identity(s string) string { return s }
 
 // shellQuote single-quotes a value for safe shell interpolation.
 func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
+
+func shellQuoteForOS(s, goos string) string {
+	if goos == "windows" {
+		return "'" + strings.ReplaceAll(s, "'", "''") + "'"
+	}
+	return shellQuote(s)
+}
 
 // renderTemplate replaces {name} placeholders with each param's rendered value.
 func renderTemplate(tmpl string, params map[string]any, quote func(string) string) string {

@@ -1743,3 +1743,21 @@ export interface InterceptExecution {
   seq: number;
   items: Activity[];
 }
+export interface ResourceStatus {
+  at: string;
+  cpu_percent: number;
+  memory_percent: number;
+  memory_available: number;
+  memory_total: number;
+  disk_free: number;
+  disk_total: number;
+  cgroup_memory_max?: number;
+  cgroup_cpu_quota?: string;
+  cgroup_pids_max?: string;
+  state: "normal" | "pressure" | "unknown";
+  reason: string;
+  workers: number;
+  tools: number;
+  limits: { max_workers: number; max_tools: number };
+  alerts: { at: string; state: string; reason: string }[];
+}

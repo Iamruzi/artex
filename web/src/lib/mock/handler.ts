@@ -886,6 +886,14 @@ export async function mockHandle<T>(method: string, rawPath: string, body?: Body
 function route(m: string, path: string, seg: string[], q: URLSearchParams, b: Record<string, unknown>): unknown {
   const task = q.get("task") ?? undefined;
 
+  if (path === "/resources" && m === "GET") {
+    return {
+      at: "", cpu_percent: 0, memory_percent: 0, memory_available: 0, memory_total: 0,
+      disk_free: 0, disk_total: 0, state: "unknown", reason: "演示环境未连接真实服务器，不提供资源实测数据",
+      workers: 0, tools: 0, limits: { max_workers: 2, max_tools: 4 }, alerts: [], history: [],
+    };
+  }
+
   if (path === "/chat/mentions" && m === "GET") {
     const kind = q.get("kind") ?? "";
     const query = (q.get("q") ?? "").trim().toLowerCase();

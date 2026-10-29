@@ -36,8 +36,18 @@ ExecStart=/opt/artex/artex -addr :8787 -proxy :8788
 #   RestartSteps=4 / RestartMaxDelaySec=60s 实现 5→60s 递增至上限）
 Restart=on-failure
 RestartSec=5s
-# 内存上限按需开启（默认不设）。探索任务吃内存时建议：
-# MemoryMax=2G
+# Covers every descendant, including SDK background jobs and MCP subprocesses.
+# Leave host memory for PostgreSQL/SSH/the kernel; adjust for colocated services.
+CPUAccounting=yes
+MemoryAccounting=yes
+TasksAccounting=yes
+CPUQuota=200%
+MemoryHigh=65%
+MemoryMax=75%
+MemorySwapMax=0
+TasksMax=256
+KillMode=control-group
+TimeoutStopSec=20s
 # 流量录制会开大量连接
 LimitNOFILE=65535
 # 日志走 journal： journalctl -u artex -f

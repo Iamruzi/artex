@@ -15,6 +15,7 @@ import (
 	"github.com/Autumn-27/artex/agent/chainskel"
 	"github.com/Autumn-27/artex/db"
 	"github.com/Autumn-27/artex/intercept"
+	"github.com/Autumn-27/artex/resourceguard"
 	"github.com/Autumn-27/norma/harness"
 	"github.com/Autumn-27/norma/llm"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -92,8 +93,9 @@ func retryableWorkerModelError(reason harness.TerminalReason, err error) bool {
 // (re)installed at runtime (LLM configured from the UI); the loops always run
 // but idle until an LLM is set.
 type Engine struct {
-	m        *Manager
-	debounce time.Duration
+	resources *resourceguard.Guard
+	m         *Manager
+	debounce  time.Duration
 
 	bc *Broadcaster // live activity pub/sub (SSE)
 
@@ -1036,6 +1038,15 @@ func (e *Engine) workerLoop(ctx context.Context, t *Task, name string) {
 // runIntent. Returns false when nothing was claimable. The pool worker loop is its
 // only caller.
 func (e *Engine) runWorkerStep(ctx context.Context, t *Task, name string, worker *agent.Worker) bool {
+	// Acquire before claiming, so resource pressure cannot turn an untouched
+	// intent into a failed/blocked attempt or revive a human-stopped intent.
+	if e.resources != nil {
+		release, err := e.resources.TryAcquire("worker")
+		if err != nil {
+			return false
+		}
+		defer release()
+	}
 	intent := e.claimNext(t, name)
 	if intent == nil {
 		return false
@@ -1283,6 +1294,20 @@ func (e *Engine) runIntent(ctx context.Context, t *Task, name string, worker *ag
 // task pause/delete/shutdown still stops it). Returns an error if the run could not
 // be started; the intent is left untouched in that case.
 func (e *Engine) runDetachedIntent(ctx context.Context, t *Task, intentID int64, requestID, message, agentMessage string) error {
+	resourceRelease := func() {}
+	if e.resources != nil {
+		var err error
+		resourceRelease, err = e.resources.TryAcquire("worker")
+		if err != nil {
+			return err
+		}
+	}
+	transferred := false
+	defer func() {
+		if !transferred {
+			resourceRelease()
+		}
+	}()
 	if !e.beginTaskOperation(t.ID) {
 		return fmt.Errorf("task is being deleted")
 	}
@@ -1318,7 +1343,9 @@ func (e *Engine) runDetachedIntent(ctx context.Context, t *Task, intentID int64,
 	uid := intentID
 	e.emitActivity(t, db.Activity{NodeID: &uid, Worker: "user", Kind: "user", Summary: message, Detail: message})
 	release = false // ownership of the admission passes to the goroutine
+	transferred = true
 	go func() {
+		defer resourceRelease()
 		defer e.decInflight(t.ID)
 		e.runIntent(ctx, t, "chat", worker, node, requestID, agentMessage)
 	}()
