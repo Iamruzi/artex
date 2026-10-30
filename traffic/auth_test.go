@@ -191,7 +191,7 @@ func TestOpenTightensPermissions(t *testing.T) {
 	}
 	defer tr.Close()
 
-	for _, d := range []string{dir, "_index", "_blobs", "_ca"} {
+	for _, d := range []string{".", "_index", "_blobs", "_ca"} {
 		if m := fileMode(t, filepath.Join(dir, d)); m != 0o700 {
 			t.Errorf("dir %s mode=%o, want 700", d, m)
 		}

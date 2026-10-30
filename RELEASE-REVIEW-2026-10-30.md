@@ -27,6 +27,7 @@
 - Windows 全部 **32 个 Go 包测试通过**，逐包显式独立数据库，`go test -p 1 -count=1 -timeout 5m`。包含 db 75.580 秒、server 67.360 秒。此前记录的 8 个 server 失败已修复/更新并通过，未跳过这些用例。
 - 最后修改过的 buildinfo、pocsearch 再次整包通过；全项目 `go vet -p 1 ./...` 通过。
 - 首次 GitHub Linux 回归额外执行了本机没有 PHP 解释器而跳过的 `php -l`，发现既有 PHP 模板变量引用缺少 `$`。本批只修复变量引用语法，补充不依赖 PHP 的模板结构检查，保留正常/可选变形渲染结果的真实 PHP 语法检查；未增改命令执行协议或变形算法。修复后本机 session 整包与 vet 通过，Linux 语法检查以该修复提交的 Actions 结果为准，不能用 Windows 的 skip 冒充覆盖。
+- 第二轮 Linux 的 session 整包（含 PHP 语法检查）通过；随后发现 Unix 权限测试把完整临时根路径再次拼到自身，导致检查不存在的双重路径。修正为相对 `.`，仍检查根目录及子目录的 0700、文件/证书的 0600，不删除权限断言、不跳过 Unix 检查。Windows 原本按无 Unix mode bits 跳过此用例，不能代表这项 Linux 验证。
 - 前端新页面/顶栏 Biome 通过，TypeScript 和单 worker Webpack 生产静态构建通过，Node 堆限制 768MiB。未运行真实模型。
 - Bash 构建和 CI 脚本语法检查通过；持续集成配置随源码发布，远端实际结果应以 GitHub Actions 为准。
 - 本地测试日志位于 `D:/CodexWorkspaces/artex-build-cache/byte2cat-regression/`；完整包结果、模式扫描及构建日志为同目录上级的 `byte2cat-*` 文件。日志与数据库连接索引不打入发布包。
