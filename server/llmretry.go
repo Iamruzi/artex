@@ -41,12 +41,13 @@ func resolveRetry(o db.RetryOverride, pol db.LLMRetryPolicy) agent.RetryConfig {
 	}
 }
 
-// applyProfileRetry fills cfg.Retry for a profile read from the DB.
-func (s *Server) applyProfileRetry(cfg *agent.Config, p *db.LLMProfile) {
+// applyProfileOverrides fills endpoint-specific retry and prompt settings.
+func (s *Server) applyProfileOverrides(cfg *agent.Config, p *db.LLMProfile) {
 	if p == nil {
 		return
 	}
 	cfg.Retry = resolveRetry(p.Retry, s.retryPolicy())
+	cfg.ModelPrompt = p.ModelPrompt
 }
 
 // 熔断(轮询冷却)的默认值,与 llmpool 内置的一致 —— 这里只在「用户配了值」时才覆盖。

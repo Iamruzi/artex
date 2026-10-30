@@ -27,9 +27,10 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api } from "@/lib/api";
-import type { LLMPoolMember, LLMPoolStatus, LLMProfile, LLMRetryOverride } from "@/lib/types";
+import type { LLMPoolMember, LLMPoolStatus, LLMProfile, LLMRetryOverride, ModelPromptConfig } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
+import { ModelPromptFields } from "./_components/model-prompt";
 import { ProfileRetryFields, RetryPolicyPanel, ZERO_OVERRIDE } from "./_components/retry";
 
 // 思考开关(thinking.type)与思考强度(reasoning_effort)是两个【互相独立】的字段，
@@ -328,6 +329,7 @@ function ProfileSheet({
   const [maxTokens, setMaxTokens] = React.useState("0"); // 单次回复输出上限;0=不发送
   const [maxTokensField, setMaxTokensField] = React.useState(NONE); // 上限用哪个字段名;NONE=max_tokens
   const [sessionHeaderKey, setSessionHeaderKey] = React.useState(""); // 自定义会话头名;空=不发送
+  const [modelPrompt, setModelPrompt] = React.useState<ModelPromptConfig>({ mode: "" });
   const [retry, setRetry] = React.useState<LLMRetryOverride>(ZERO_OVERRIDE); // 本配置的重试覆盖;全 0=跟随全局
   const [testing, setTesting] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
@@ -355,6 +357,7 @@ function ProfileSheet({
     setMaxTokens(String(profile?.max_tokens ?? 0));
     setMaxTokensField(fromStore(profile?.max_tokens_field));
     setSessionHeaderKey(profile?.session_header_key ?? "");
+    setModelPrompt(profile?.model_prompt ?? { mode: "" });
     setRetry(profile?.retry ?? ZERO_OVERRIDE);
     setApiKey("");
     setKeyHint(profile?.api_key_hint ?? "");
@@ -444,6 +447,7 @@ function ProfileSheet({
         // 后端也会再做一次同样的归一化，这里只是别让 UI 送出自相矛盾的值。
         max_tokens_field: format === "openai" ? toStore(maxTokensField) : "",
         session_header_key: sessionHeaderKey.trim(),
+        model_prompt: modelPrompt,
         retry,
       });
       if (isNew) toast.success(`已新建：${name.trim()}（在卡片上「设为激活」以启用）`);
@@ -765,6 +769,18 @@ function ProfileSheet({
           </div>
 
           <ProfileRetryFields value={retry} onChange={setRetry} />
+          <details className="space-y-3">
+            <summary className="cursor-pointer font-medium text-sm">高级调试：模型提示词和对照</summary>
+            <p className="text-muted-foreground text-xs">
+              常规任务通过 Skill 按需加载 model-jailbreak-assist；本节用于调试模型配置。
+            </p>
+            <ModelPromptFields
+              value={modelPrompt}
+              onChange={setModelPrompt}
+              profileId={profile?.id}
+              savedValue={profile?.model_prompt}
+            />
+          </details>
         </div>
 
         <div className="flex gap-2 border-t px-4 py-3">

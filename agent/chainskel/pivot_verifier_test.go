@@ -12,13 +12,24 @@ func TestVerifierChecklistGeneralAlways(t *testing.T) {
 		if !strings.Contains(out, "以下判据用于反证,逐条过") {
 			t.Fatalf("vulnclass=%q 缺固定段头:\n%s", v, out)
 		}
-		for _, want := range []string{"通用判据", "200 ≠ 打通", "锚定预期特征", "阴性 ≠ 无洞"} {
+		for _, want := range []string{"通用判据", "200 ≠ 打通", "锚定预期特征", "阴性 ≠ 无洞", "请求依赖", "过期凭据"} {
 			if !strings.Contains(out, want) {
 				t.Fatalf("vulnclass=%q 通用层缺 %q:\n%s", v, want, out)
 			}
 		}
 		if strings.Contains(out, "专项判据") {
 			t.Fatalf("vulnclass=%q 未命中类别不应有专项判据:\n%s", v, out)
+		}
+	}
+}
+
+func TestAuthorizationVerificationChecksIdentityAndPrerequisites(t *testing.T) {
+	for _, class := range []string{"越权访问", "IDOR", "认证绕过", "BOLA", "Broken Access Control"} {
+		out := VerifierChecklist(class)
+		for _, required := range []string{"公开数据", "资源所有者", "匿名访问", "不能虚构账号", "先验证会话有效", "流程状态"} {
+			if !strings.Contains(out, required) {
+				t.Fatalf("%s missing %s", class, required)
+			}
 		}
 	}
 }

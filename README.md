@@ -1,6 +1,10 @@
-# ARTEX-ymh
+# ARTEX
 
 AI 自主渗透测试系统 · 二开版（Go 后端 + Next.js 前端 + PostgreSQL)
+
+Byte2Cat 质量整合版，独立版本从 `0.1.0` 开始。页面和启动日志显示 `Byte2Cat v版本 · Git短哈希`；未提交构建会附加 `-dirty`。仓库沿用 ARTEX 的上游历史和 AGPL-3.0 许可证。
+
+本次发布的改动、完整回归与实际验收边界见 [0.1.0 复核记录](RELEASE-REVIEW-2026-10-30.md)。
 
 > 本项目是 [Autumn-27/ARTEX](https://github.com/Autumn-27/ARTEX) 的二次开发分支，基于上游 v0.3.10，持续吸收上游更新（已跟进至 v0.3.12 并选择性吸收 0.3.11/0.3.12 修复），遵循上游 **AGPL-3.0** 协议（见 `LICENSE`)。
 > 二开方向：把上游「外网自动化探索平台」扩展为「**外网突破 → 立足点 → 内网纵深**」的全流程自主渗透平台，并补齐实战化安全与稳定性短板。
@@ -26,7 +30,15 @@ AI 自主渗透测试系统 · 二开版（Go 后端 + Next.js 前端 + PostgreS
 
 本次质量整合、可选功能启用方式与验证边界见 [INTEGRATION.md](INTEGRATION.md)。
 
-安全技能已扩充至 20 个，新增来源、ARTEX 接入方式和验证记录见 [SKILLS.md](SKILLS.md)。
+安全技能已扩充至 21 个，新增来源、ARTEX 接入方式和验证记录见 [SKILLS.md](SKILLS.md)。
+
+CyberStrikeAI、CyberStrike、Strix 等框架的接入取舍、当前落地范围与后续验收见 [FRAMEWORK-INTEGRATION.md](FRAMEWORK-INTEGRATION.md)，每批修改须 review，记录见 [FRAMEWORK-INTEGRATION-REVIEW.md](FRAMEWORK-INTEGRATION-REVIEW.md)。
+
+原生 HTTP 基线/测试交错采样与观测回看见 [HTTP-MEASUREMENT.md](HTTP-MEASUREMENT.md)；测量线索不等于漏洞或目标已达成。
+
+原生知识库、自动公开 CVE/PoC 发现、候选源码阅读及调用记录见 [KNOWLEDGE.md](KNOWLEDGE.md)。目前预置 4 条通用参考，未捆绑第三方私有资料；候选源码返回待核对项和字面风险提示，不等于审计或利用成功。整合版在线二进制更新暂不启用，升级请使用本仓库源码，避免被上游版本覆盖。
+
+仪表盘「服务器资源保护」支持开关自动保护，立即生效并保存选择。关闭后继续显示资源用量，但不因 CPU、内存或磁盘压力拦截新执行；并发上限与人工暂停保持生效。
 
 ---
 
@@ -37,8 +49,8 @@ AI 自主渗透测试系统 · 二开版（Go 后端 + Next.js 前端 + PostgreS
 ### 方式一：一键安装脚本
 
 ```bash
-git clone https://github.com/Iamruzi/artex-0312.git
-cd artex-0312
+git clone https://github.com/Iamruzi/artex.git
+cd artex
 ./install.sh
 ```
 
@@ -51,8 +63,8 @@ cd artex-0312
 > **国内网络**：克隆 GitHub、npm、Go 模块可能需要代理/镜像，参考：`git config --global http.proxy socks5h://127.0.0.1:7890`、`npm config set registry https://registry.npmmirror.com`、`go env -w GOPROXY=https://goproxy.cn,direct`。
 
 ```bash
-git clone https://github.com/Iamruzi/artex-0312.git
-cd artex-0312
+git clone https://github.com/Iamruzi/artex.git
+cd artex
 # 1) 前端静态导出
 cd web && npm ci && npm run build:static && cd ..
 # 2) 拷进内嵌目录(全新克隆下若报目录不存在,先 mkdir -p server/webui/dist)
@@ -80,8 +92,8 @@ journalctl -u artex -f
 仓库的 `docker-compose.yml` 已配置为**从源码构建二开版镜像**(`Dockerfile.source`：前端构建 → Go 编译 → 工具运行时，全部在 Docker 内完成，宿主无需 Go/Node):
 
 ```bash
-git clone https://github.com/Iamruzi/artex-0312.git
-cd artex-0312
+git clone https://github.com/Iamruzi/artex.git
+cd artex
 cp .env.example .env   # 填 POSTGRES_PASSWORD(不要用 # 字符)
 docker compose up -d --build
 ```

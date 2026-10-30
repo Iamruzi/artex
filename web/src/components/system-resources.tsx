@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
+import { Switch } from "@/components/ui/switch";
 import { api } from "@/lib/api";
 import type { ResourceStatus } from "@/lib/types";
 
@@ -14,6 +15,10 @@ function bytes(n: number) {
 export function SystemResources() {
   const [data, setData] = useState<ResourceStatus | null>(null);
   const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
+  const revision = useRef(0);
+  const savingNow = useRef(false);
   useEffect(() => {
     let alive = true;
     let timer: ReturnType<typeof setTimeout>;
@@ -23,14 +28,16 @@ export function SystemResources() {
       if (!document.hidden) {
         request = new AbortController();
         const timeout = setTimeout(() => request?.abort(), 8000);
+        const observedRevision = revision.current;
         try {
           const next = await api.resources(request.signal);
-          if (alive) {
+          if (alive && observedRevision === revision.current && !savingNow.current) {
             setData(next);
             setError("");
           }
         } catch {
-          if (alive) setError("资源状态暂不可用，请检查服务器连接");
+          if (alive && observedRevision === revision.current && !savingNow.current)
+            setError("资源状态暂不可用，请检查服务器连接");
         } finally {
           clearTimeout(timeout);
         }
@@ -44,6 +51,31 @@ export function SystemResources() {
       request?.abort();
     };
   }, []);
+
+  async function toggleProtection(enabled: boolean) {
+    if (savingNow.current) return;
+    savingNow.current = true;
+    revision.current += 1;
+    setSaving(true);
+    setSaveError("");
+    try {
+      const next = await api.setResourceProtection(enabled);
+      setData(next);
+      setError("");
+    } catch (cause) {
+      setSaveError(cause instanceof Error ? cause.message : "设置保存失败，请重试");
+    } finally {
+      // Discard any pre-commit poll still in flight so it cannot undo the
+      // acknowledged switch position in the UI.
+      revision.current += 1;
+      savingNow.current = false;
+      setSaving(false);
+    }
+  }
+
+  const protectionEnabled = data?.protection_enabled ?? true;
+  let protectionLabel = protectionEnabled ? "自动保护已开启" : "自动保护已关闭";
+  if (saving) protectionLabel = "保存中…";
 
   const ready = data && data.memory_total > 0 && data.disk_total > 0;
   const rows = ready
@@ -66,16 +98,42 @@ export function SystemResources() {
     <Card>
       <CardHeader className="pb-2">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <CardTitle className="text-sm">服务器资源保护</CardTitle>
+          <div className="flex flex-wrap items-center gap-3">
+            <CardTitle className="text-sm">服务器资源保护</CardTitle>
+            <label htmlFor="resource-protection-toggle" className="flex items-center gap-2 text-xs">
+              <Switch
+                id="resource-protection-toggle"
+                checked={protectionEnabled}
+                disabled={!data || saving}
+                onCheckedChange={(enabled) => void toggleProtection(enabled)}
+                aria-describedby="resource-protection-help"
+              />
+              {protectionLabel}
+            </label>
+          </div>
           <span
             role="status"
             className={`text-xs ${error || data?.state !== "normal" ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400"}`}
           >
-            {error || (data ? data.reason : "等待采样…")}
+            {error ||
+              (data
+                ? `${protectionEnabled ? "" : "仅监测 · "}${data.reason}${protectionEnabled && data.state !== "normal" ? "，暂停新执行" : ""}`
+                : "等待采样…")}
           </span>
         </div>
       </CardHeader>
       <CardContent className="space-y-3 text-xs">
+        <p id="resource-protection-help" className="text-muted-foreground">
+          {protectionEnabled
+            ? "资源紧张时暂停新执行，恢复后自动放行。"
+            : "继续监测资源，不再因 CPU、内存或磁盘压力暂停新执行。"}
+          并发上限仍生效，手动暂停保持不变。开关立即生效，重启后保留。
+        </p>
+        {saveError && (
+          <p role="alert" className="text-destructive">
+            {saveError}
+          </p>
+        )}
         <div className="grid gap-4 sm:grid-cols-3">
           {rows.map((row) => (
             <div key={row.label} className="space-y-1.5">
@@ -90,7 +148,6 @@ export function SystemResources() {
         {data && (
           <p className="text-muted-foreground">
             工作器 {data.workers}/{data.limits.max_workers} · 正在调用的高开销工具 {data.tools}/{data.limits.max_tools}{" "}
-            · 资源紧张时暂停新执行，恢复后自动放行。手动暂停保持不变。
             {ready ? ` 最近采样 ${new Date(data.at).toLocaleTimeString()}。` : " 尚无有效采样。"}
           </p>
         )}

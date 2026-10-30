@@ -1265,71 +1265,64 @@ func (t *ToolSet) listGoals() actool.CoreTool {
 }
 
 func (t *ToolSet) proveGoal() actool.CoreTool {
-	return t.writeExpTool("prove_goal", "当你判断某个发现/事实证明了某个目标达成时调用：把证据节点连到目标节点，并标记目标 met。（证据若是漏洞节点，必须是已确认 confirmed 的；pending 待验证/误报不算已突破，不能作证据）",
+	return t.writeExpTool("prove_goal", "提交目标证明并标记 met。证据须为本任务或直接关联任务的 confirmed 事实；漏洞须有 confirmed 独立记录。线索、任务起点、未验证和已驳回记录不算。所有目标均有有效证明后才能完成任务。仍须核对证据是否真正满足目标及数量/权限等验收条件。",
 		obj(map[string]any{
 			"goal_id":     idp("目标节点 id"),
 			"evidence_id": idp("证明它的发现/事实节点 id"),
 			"reason":      str("为什么这个证据满足该目标"),
 		}, "goal_id", "evidence_id"),
-		func(_ context.Context, in json.RawMessage) (actool.Result, error) {
+		func(ctx context.Context, in json.RawMessage) (actool.Result, error) {
+			t.GoalMet = false
 			var a struct {
 				GoalID     json.RawMessage `json:"goal_id"`
 				EvidenceID json.RawMessage `json:"evidence_id"`
 				Reason     string          `json:"reason"`
 			}
-			_ = json.Unmarshal(in, &a)
+			if err := json.Unmarshal(in, &a); err != nil {
+				return actool.Errorf(fmt.Sprintf("无效参数: %v", err)), nil
+			}
 			goal, ev := pid(a.GoalID), pid(a.EvidenceID)
-			if goal == 0 || ev == 0 {
-				return actool.Errorf("goal_id 和 evidence_id 必填"), nil
+			if goal <= 0 || ev <= 0 {
+				return actool.Errorf("goal_id 和 evidence_id 必须为正整数"), nil
 			}
-			goalNode, err := t.ts.GetNode(goal)
-			if err != nil || goalNode == nil || goalNode.Kind != db.KindGoal {
-				return actool.Errorf("goal_id 必须是本任务的目标节点（关联任务目标只读）"), nil
+			if err := t.ts.ProveGoal(ctx, goal, ev); err != nil {
+				return actool.Errorf(fmt.Sprintf("目标证明未提交: %v", err)), nil
 			}
-			evidenceNode, err := t.ts.GetNodeWithSources(ev)
-			if err != nil || evidenceNode == nil || (evidenceNode.Kind != db.KindFact && evidenceNode.Kind != db.KindFinding) {
-				return actool.Errorf("evidence_id 必须是本任务或直接关联任务的事实/漏洞节点"), nil
+			met, err := t.ts.AllGoalsProven(ctx)
+			if err != nil {
+				return actool.Errorf(fmt.Sprintf("目标证明已保存，但任务验收读取失败，未宣布成功: %v", err)), nil
 			}
-			// C4:待验证(pending)/误报(false_positive)的漏洞不算"已突破",不能作为
-			// 目标达成证据——反证验证(verifier)写回 confirmed 后才算数。节点 state 在
-			// 上报时即 'confirmed', triage 状态要查 findings 表;无独立行(合成/遗留
-			// 节点)保持原行为。
-			if evidenceNode.Kind == db.KindFinding && t.as != nil {
-				if st, serr := t.as.FindingStatusByNodeID(ev); serr == nil && !provenFinding(st) {
-					return actool.Errorf(fmt.Sprintf("该漏洞尚未验证通过(当前状态 %s),不能作为目标达成证据;待反证验证确认为 confirmed 后再试", st)), nil
-				}
+			// Assign on every check, including false, so a later changed goal cannot
+			// leave a stale per-run success flag behind.
+			t.GoalMet = met
+			if met {
+				t.Reason = "本任务全部目标均有已保存且状态有效的证明"
+				return actool.Text(fmt.Sprintf("goal %d marked met；全部目标证明已保存，待引擎核对当前任务状态后完成", goal)), nil
 			}
-			_ = t.ts.Link(ev, db.RelProves, goal)
-			_ = t.ts.SetNodeState(goal, "met")
-			// 每标记一个目标 met，就检查本任务是否【所有目标】都已 met；若是，自动判定
-			// 任务完成（置 GoalMet），无需再依赖模型显式调 goal_met。
-			if goals, err := t.ts.ListByKind(db.KindGoal, 1000); err == nil && len(goals) > 0 {
-				allMet := true
-				for _, g := range goals {
-					if g.State != "met" {
-						allMet = false
-						break
-					}
-				}
-				if allMet {
-					t.GoalMet = true
-					t.Reason = fmt.Sprintf("所有 %d 个目标均已 met（最后由 goal %d 触发）", len(goals), goal)
-					return actool.Text(fmt.Sprintf("goal %d marked met；本任务所有目标均已达成，任务自动判定完成", goal)), nil
-				}
-			}
-			return actool.Text(fmt.Sprintf("goal %d marked met", goal)), nil
+			return actool.Text(fmt.Sprintf("goal %d marked met；其他目标尚未全部通过", goal)), nil
 		})
 }
 
 func (t *ToolSet) goalMet() actool.CoreTool {
-	return writeTool("goal_met", "【立即结束整个任务】——仅当你确认任务的【全部目标都已真正达成、整体收官】时才调（注意是任务【整体】完成；仅仅达成了其中某一个目标/某一个 flag/某一个漏洞【不算】——那种情况用 prove_goal 标记该目标即可）。⚠️它不是用来“结束本轮规划”的：本轮没有新意图要派、或在等 worker 产出，都【直接结束本轮即可，不要调本工具】（0 个意图是完全正常的）。正常判定优先用 prove_goal 逐个证明目标；goal_met 只是绕过逐个证明、直接从全局收官的手段。",
-		obj(map[string]any{"reason": str("达成理由（必须是目标真正达成的证据，不能是“本轮无新方向”这类结束本轮的理由）")}, "reason"),
-		func(_ context.Context, in json.RawMessage) (actool.Result, error) {
+	return t.writeExpTool("goal_met", "核对本任务全部目标的已保存证明并请求结束；不能绕过 prove_goal。没有目标、尚有未完成/放弃的目标、缺少证明或证据状态失效均不通过。本轮没有新方向不代表目标达成。",
+		obj(map[string]any{"reason": str("整体目标达成说明；不能代替逐个目标的证明记录")}, "reason"),
+		func(ctx context.Context, in json.RawMessage) (actool.Result, error) {
+			// Clear a previous in-run acknowledgement before processing a new one.
+			t.GoalMet = false
 			var a struct{ Reason string }
-			_ = json.Unmarshal(in, &a)
+			if err := json.Unmarshal(in, &a); err != nil || strings.TrimSpace(a.Reason) == "" {
+				return actool.Errorf("reason 必须是非空的达成说明"), nil
+			}
+			met, err := t.ts.AllGoalsProven(ctx)
+			if err != nil {
+				return actool.Errorf(fmt.Sprintf("任务验收读取失败，未宣布成功: %v", err)), nil
+			}
+			if !met {
+				return actool.Errorf("全部目标尚未通过证明核对；请用 prove_goal 提交有效证据，不能仅凭结束说明宣布成功"), nil
+			}
 			t.GoalMet = true
 			t.Reason = a.Reason
-			return actool.Text("acknowledged: goal marked met"), nil
+			return actool.Text("全部目标证明已保存，待引擎核对当前任务状态后完成"), nil
 		})
 }
 

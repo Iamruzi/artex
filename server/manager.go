@@ -1090,8 +1090,8 @@ func newTarpitConfig(pg *pgdb.DB, store *pgdb.ExplorationStore) guard.TarpitConf
 
 func taskFromPG(pt *pgdb.Task, store *pgdb.ExplorationStore, ic *intercept.Interceptor, pg *pgdb.DB, eg *guard.EgressGuard) *Task {
 	g := guard.NewWithInterceptor(ic)
-	g.SetRoE(newRoEConfig(pg))          // RoE 范围强制(F5):worker 的 Bash/HTTP 目标与 task_scope 比对
-	g.SetEgress(eg)                     // 批 5 B2 出口审查:进程级共享指纹集合
+	g.SetRoE(newRoEConfig(pg))              // RoE 范围强制(F5):worker 的 Bash/HTTP 目标与 task_scope 比对
+	g.SetEgress(eg)                         // 批 5 B2 出口审查:进程级共享指纹集合
 	g.SetTarpit(newTarpitConfig(pg, store)) // 批 5 B3 tarpit 熔断(每任务计数,重启清零)
 	return &Task{
 		ID: strconv.FormatInt(pt.ID, 10), ExpID: pt.ExplorationID,
@@ -1664,6 +1664,37 @@ func (m *Manager) SetTaskStatusGuarded(id, status string) (won bool, err error) 
 		})
 	}
 	m.mu.Unlock()
+	return true, nil
+}
+
+// CompleteTaskWithGoals is the automatic success path. Unlike the generic
+// terminal setter, it requires current proofs and preserves pause/queue state.
+func (m *Manager) CompleteTaskWithGoals(ctx context.Context, t *Task) (bool, error) {
+	return m.completeTaskChecked(ctx, t, true)
+}
+
+func (m *Manager) completeTaskChecked(ctx context.Context, t *Task, requireAllGoals bool) (bool, error) {
+	m.taskStateMu.Lock()
+	defer m.taskStateMu.Unlock()
+	id, err := strconv.ParseInt(t.ID, 10, 64)
+	if err != nil {
+		return false, err
+	}
+	var won bool
+	if requireAllGoals {
+		won, err = m.pg.CompleteTaskWithGoals(ctx, id, t.Store.ID())
+	} else {
+		won, err = m.pg.CompleteDrainedTask(ctx, id, t.Store.ID())
+	}
+	if err != nil || !won {
+		return won, err
+	}
+	t.updateLifecycle(func(state *taskLifecycleState) {
+		state.Status = "done"
+		if state.CompletedAt == 0 {
+			state.CompletedAt = time.Now().Unix()
+		}
+	})
 	return true, nil
 }
 

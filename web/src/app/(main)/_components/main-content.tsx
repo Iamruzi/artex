@@ -37,7 +37,7 @@ export function MainContent({ children }: { children: ReactNode }) {
   useEffect(() => {
     api
       .health()
-      .then((h) => setVersion((h.version ?? "").replace(/^v(?=\d)/, "")))
+      .then((h) => setVersion(h.display_version || (h.version ?? "").replace(/^v(?=\d)/, "")))
       .catch(() => setVersion(""));
   }, []);
 

@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/Autumn-27/artex/llmrec"
+	"github.com/Autumn-27/artex/modelprompt"
 	"github.com/Autumn-27/norma/agentcore"
 	"github.com/Autumn-27/norma/compaction"
 	"github.com/Autumn-27/norma/llm"
@@ -30,10 +31,11 @@ import (
 
 // Config describes the LLM backend resolved from the environment.
 type Config struct {
-	Format  llm.Format
-	BaseURL string
-	APIKey  string
-	Model   string
+	ModelPrompt modelprompt.Config
+	Format      llm.Format
+	BaseURL     string
+	APIKey      string
+	Model       string
 	// Proxy routes all LLM requests through the given proxy URL (http/https/socks5,
 	// optionally with user:pass@ credentials). Empty means direct — it does NOT
 	// fall back to the standard *_PROXY environment variables.
@@ -281,6 +283,10 @@ func (c Config) NewProvider() (llm.Provider, error) {
 		lc.RateLimit = &llm.RateLimit{PerSecond: c.RatePerSecond, PerMinute: c.RatePerMinute}
 	}
 	prov, err := llm.NewProvider(lc)
+	if err != nil {
+		return nil, err
+	}
+	prov, err = WithModelPrompt(prov, c.ModelPrompt)
 	if err != nil {
 		return nil, err
 	}

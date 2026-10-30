@@ -2,6 +2,7 @@ package db
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -194,21 +195,27 @@ func (s *ExplorationStore) Root() (description, goal string, err error) {
 
 // AddNode writes a typed reasoning node with optional anchors to asset ids.
 func (s *ExplorationStore) AddNode(kind string, payload map[string]any, priority int, state, origin string, anchors []int64) (int64, error) {
+	return s.AddNodeContext(context.Background(), kind, payload, priority, state, origin, anchors)
+}
+
+// AddNodeContext is the bounded-write variant used when preserving cancelled
+// execution observations. Existing AddNode callers retain their behavior.
+func (s *ExplorationStore) AddNodeContext(ctx context.Context, kind string, payload map[string]any, priority int, state, origin string, anchors []int64) (int64, error) {
 	raw, _ := json.Marshal(payload)
-	tx, err := s.db.Begin()
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, err
 	}
 	defer tx.Rollback()
 	var id int64
-	if err := tx.QueryRow(`
+	if err := tx.QueryRowContext(ctx, `
 INSERT INTO exploration_nodes(exploration_id, kind, payload, priority, state, origin)
 VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
 		s.expID, kind, string(raw), priority, state, origin).Scan(&id); err != nil {
 		return 0, err
 	}
 	for _, a := range anchors {
-		if _, err := tx.Exec(`INSERT INTO exploration_anchors(node_id, asset_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`, id, a); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO exploration_anchors(node_id, asset_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`, id, a); err != nil {
 			return 0, err
 		}
 	}
@@ -1050,8 +1057,8 @@ WHERE exploration_id=$1 AND kind='intent' AND state IN ('open','running'))`, s.e
 }
 
 // HasOpenGoal reports whether this exploration still has any goal in state 'open'.
-// false ⇒ 所有目标已 met/abandoned（或本任务无目标）⇒ 进入 goalless（人工直投）分支：
-// planner 停跑，任务是否结束改由 frontier 是否抽干决定。met 与 abandoned 都算"已了结"。
+// This checks labels only, not evidence. Automatic completion must instead use
+// NeedsGoalReview / CompleteDrainedTask so a stale met label cannot bypass proof.
 func (s *ExplorationStore) HasOpenGoal() (bool, error) {
 	var exists bool
 	err := s.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM exploration_nodes

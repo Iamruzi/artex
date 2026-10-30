@@ -1,5 +1,5 @@
 {
-  "_comment": "复制为 config.json（或用环境变量 ARTEX_CONFIG 指定其它路径）。本文件仅含 database 与 skill_dir 两项；LLM 等其余配置走环境变量或应用内设置，不在此文件。",
+  "_comment": "复制为 config.json（或用环境变量 ARTEX_CONFIG 指定其它路径）。数据库、技能路径和执行保护在本文件；LLM 配置走应用内设置。",
 
   "_comment_database": "PostgreSQL 连接。优先级：环境变量 ARTEX_PG_DSN > 本文件 database。两种写法二选一：(A) 填下面的分字段；(B) 只填 database.dsn 一个完整连接串。",
   "database": {
@@ -21,6 +21,14 @@
   "_comment_skill_dir": "skill 根目录（每个子目录一个 skill，含 SKILL.md）。优先级：环境变量 ARTEX_SKILL_DIR > 本字段 > 默认（可执行文件同级的 skills/）。留空或删除本字段即用默认。相对路径相对当前工作目录解析。",
   "skill_dir": "/opt/artex/skills",
   "_comment_resource_guard": "全局执行准入；CPU/内存回落到 resume 以下才恢复。Linux systemd/Docker 部署另有覆盖所有子进程的硬上限。",
+  "_comment_mcp_guard": "MCP 工具调用隔离，修改后重启生效。单服务并发和有界排队适用所有传输；HTTP/SSE 仅明确的传输失败触发熔断，stdio SDK 的文本错误不推断为传输失败。",
+  "mcp_guard": {
+    "disabled": false,
+    "max_concurrent_per_server": 2,
+    "admission_wait_ms": 5000,
+    "failure_threshold": 3,
+    "cooldown_seconds": 30
+  },
   "resource_guard": {
     "max_workers": 2,
     "max_tools": 4,

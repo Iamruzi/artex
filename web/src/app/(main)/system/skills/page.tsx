@@ -44,6 +44,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
 import type { Agent, SkillItem, MCPServer, SkillCall, MissingSkill } from "@/lib/types";
+import { SkillLoadProof } from "./_components/skill-load-proof";
 
 function fmtTime(ts?: string) {
   if (!ts) return "从未调用";
@@ -901,6 +902,7 @@ export default function SkillsPage() {
                           <div key={`${c.ts}-${i}`} className="flex items-center gap-2 border-b px-2 py-1 text-xs last:border-b-0">
                             <span className="tabular-nums text-muted-foreground">{fmtTime(c.ts)}</span>
                             <Badge variant="outline" className="font-normal">{c.agent_key || "—"}</Badge>
+                            <SkillLoadProof call={c} />
                             <span className="ml-auto text-muted-foreground">
                               {c.task_id > 0 ? `任务 #${c.task_id}` : c.session_id ? "对话会话" : "—"}
                             </span>
@@ -911,6 +913,7 @@ export default function SkillsPage() {
                   ) : (
                     <p className="text-xs text-muted-foreground">还没有调用记录。</p>
                   )}
+                  <p className="text-xs text-muted-foreground">正文返回与后续工具执行分别记录；历史调用请求不能当作成功加载。</p>
                 </div>
 
                 {/* ── 左侧：关联 MCP + 可见性 ── */}

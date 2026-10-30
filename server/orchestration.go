@@ -41,14 +41,16 @@ func (s *Server) hostTools() ([]actool.CoreTool, map[string][]string) {
 	tools := append(s.m.HostTools(), s.orchestrationTools()...)
 	tools = append(tools, s.findingRetestTools()...)
 	tools = append(tools, s.findingCheckTools()...) // 反证验证(verifier)host 工具
-	tools = append(tools, s.platformTools()...)     // 平台操作工具(建改 skill/工具/MCP，给 Auto 用)
+	tools = append(tools, s.httpMeasurementTools()...)
+	tools = append(tools, s.knowledgeTools()...)
+	tools = append(tools, s.platformTools()...) // 平台操作工具(建改 skill/工具/MCP，给 Auto 用)
 	if s.stage != nil {
 		tools = append(tools, s.stageShareTool()) // 受管文件投递(F13),默认绑 worker
 	}
-	tools = append(tools, s.sessionTools()...) // 立足点会话工具(期 1a),默认绑 worker
+	tools = append(tools, s.sessionTools()...)    // 立足点会话工具(期 1a),默认绑 worker
 	tools = append(tools, s.credentialTools()...) // 凭据工具(期 2),默认绑 worker
-	tools = append(tools, s.tunnelTools()...)    // 隧道四件套(期 3a),默认绑 worker
-	tools = append(tools, s.reverseTools()...)   // 反弹监听(期 5),默认绑 worker
+	tools = append(tools, s.tunnelTools()...)     // 隧道四件套(期 3a),默认绑 worker
+	tools = append(tools, s.reverseTools()...)    // 反弹监听(期 5),默认绑 worker
 	custom, err := s.customTools()
 	if err != nil {
 		log.Printf("[custom-tool] 加载失败: %v", err)
@@ -553,9 +555,9 @@ func (s *Server) refreshBuiltinToolSchemas() {
 }
 
 // unbindGoalMetDefault removes goal_met's default "planner" binding ONCE (guarded by
-// a settings flag), so existing DBs match the new default of NO agent. goal_met bypasses
-// per-goal prove_goal to declare the whole task done — powerful/risky and redundant with
-// the prove_goal→auto-complete path — so it ships unbound; users can re-bind it per agent
+// a settings flag), so existing DBs match the default of NO agent. goal_met now
+// rechecks saved proofs and is redundant with prove_goal→auto-complete, so it
+// ships unbound; users can re-bind it per agent
 // in the UI. A user's own binding to another agent is untouched (we only strip planner).
 func (s *Server) unbindGoalMetDefault() {
 	const flag = "goal_met_unbind_default_v1"

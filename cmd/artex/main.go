@@ -18,14 +18,16 @@ import (
 	"time"
 
 	"github.com/Autumn-27/artex/agent"
+	"github.com/Autumn-27/artex/buildinfo"
 	"github.com/Autumn-27/artex/config"
 	"github.com/Autumn-27/artex/selfupdate"
 	"github.com/Autumn-27/artex/server"
 )
 
 // version is the build version, injected at release time via
-// -ldflags "-X main.version=<tag>". Defaults to "dev" for local builds.
-var version = "dev"
+// -ldflags "-X main.version=<tag> -X main.revision=<sha>".
+var version = buildinfo.Version
+var revision string
 
 const banner = `
     _    ____ _____ _______  __
@@ -40,7 +42,7 @@ func printBanner(addr string) {
 	fmt.Print(banner)
 	fmt.Println("  AI 自主渗透测试系统")
 	fmt.Printf("  版本 %s  ·  %s/%s  ·  %s  ·  监听 %s\n\n",
-		version, runtime.GOOS, runtime.GOARCH, runtime.Version(), addr)
+		buildinfo.New(version, revision).Display, runtime.GOOS, runtime.GOARCH, runtime.Version(), addr)
 }
 
 // main only maps run's result onto the process exit code. The exit code is part
@@ -66,7 +68,8 @@ func run() int {
 
 	// hand the build version to the server package so GET /api/health can report it
 	// to the frontend top bar.
-	server.BuildVersion = version
+	server.BuildMetadata = buildinfo.New(version, revision)
+	server.BuildVersion = server.BuildMetadata.Version
 
 	printBanner(*addr)
 

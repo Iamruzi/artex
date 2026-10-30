@@ -79,13 +79,14 @@ type Alert struct {
 
 type Snapshot struct {
 	Sample
-	State   string   `json:"state"`
-	Reason  string   `json:"reason"`
-	Workers int      `json:"workers"`
-	Tools   int      `json:"tools"`
-	Limits  Config   `json:"limits"`
-	Alerts  []Alert  `json:"alerts"`
-	History []Sample `json:"history"`
+	ProtectionEnabled bool     `json:"protection_enabled"`
+	State             string   `json:"state"`
+	Reason            string   `json:"reason"`
+	Workers           int      `json:"workers"`
+	Tools             int      `json:"tools"`
+	Limits            Config   `json:"limits"`
+	Alerts            []Alert  `json:"alerts"`
+	History           []Sample `json:"history"`
 }
 
 type Sampler interface {
@@ -93,18 +94,46 @@ type Sampler interface {
 }
 
 type Guard struct {
-	mu             sync.Mutex
-	cfg            Config
-	last           Sample
-	state, reason  string
-	workers, tools int
-	alerts         []Alert
-	history        []Sample
-	changed        chan struct{}
+	mu                sync.Mutex
+	cfg               Config
+	last              Sample
+	state, reason     string
+	workers, tools    int
+	alerts            []Alert
+	history           []Sample
+	changed           chan struct{}
+	protectionEnabled bool
 }
 
 func New(c Config) *Guard {
-	return &Guard{cfg: c.Defaults(), state: "unknown", reason: "等待资源采样", changed: make(chan struct{})}
+	return &Guard{cfg: c.Defaults(), state: "unknown", reason: "等待资源采样", changed: make(chan struct{}), protectionEnabled: true}
+}
+
+// SetProtectionEnabled only changes pressure admission. Sampling, lease counts
+// and concurrency caps continue; no task state or running process is changed.
+func (g *Guard) SetProtectionEnabled(enabled bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.protectionEnabled == enabled {
+		return
+	}
+	g.protectionEnabled = enabled
+	close(g.changed)
+	g.changed = make(chan struct{})
+}
+
+func (g *Guard) CheckPressure() error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.checkPressureLocked()
+}
+
+func (g *Guard) checkPressureLocked() error {
+	state, reason := g.stateLocked()
+	if g.protectionEnabled && state != "normal" {
+		return fmt.Errorf("resource_blocked: %s", reason)
+	}
+	return nil
 }
 
 // Run has one sampler and one fixed ticker, regardless of task/dashboard count.
@@ -152,13 +181,13 @@ func (g *Guard) Observe(s Sample, err error) *Alert {
 		g.state, g.reason = "normal", "资源充足"
 		switch {
 		case s.MemoryAvailable < reserve:
-			g.state, g.reason = "pressure", "可用内存不足，暂停派发"
+			g.state, g.reason = "pressure", "可用内存不足"
 		case s.MemoryPercent >= mem:
-			g.state, g.reason = "pressure", "内存使用率过高，暂停派发"
+			g.state, g.reason = "pressure", "内存使用率过高"
 		case s.CPUPercent >= cpu:
-			g.state, g.reason = "pressure", "CPU 使用率过高，暂停派发"
+			g.state, g.reason = "pressure", "CPU 使用率过高"
 		case s.DiskFree < disk:
-			g.state, g.reason = "pressure", "数据盘剩余空间不足，暂停派发"
+			g.state, g.reason = "pressure", "数据盘剩余空间不足"
 		}
 	}
 	close(g.changed)
@@ -181,7 +210,7 @@ func valid(s Sample) bool {
 
 func (g *Guard) stateLocked() (string, string) {
 	if g.last.At.IsZero() || time.Since(g.last.At) > 3*Interval {
-		return "unknown", "资源采样已过期，暂停派发"
+		return "unknown", "资源采样已过期"
 	}
 	return g.state, g.reason
 }
@@ -190,7 +219,7 @@ func (g *Guard) Snapshot() Snapshot {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	state, reason := g.stateLocked()
-	return Snapshot{Sample: g.last, State: state, Reason: reason, Workers: g.workers, Tools: g.tools, Limits: g.cfg,
+	return Snapshot{Sample: g.last, ProtectionEnabled: g.protectionEnabled, State: state, Reason: reason, Workers: g.workers, Tools: g.tools, Limits: g.cfg,
 		Alerts: append([]Alert{}, g.alerts...), History: append([]Sample{}, g.history...)}
 }
 
@@ -199,9 +228,8 @@ func (g *Guard) Snapshot() Snapshot {
 func (g *Guard) TryAcquire(kind string) (func(), error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	state, reason := g.stateLocked()
-	if state != "normal" {
-		return nil, fmt.Errorf("resource_blocked: %s", reason)
+	if err := g.checkPressureLocked(); err != nil {
+		return nil, err
 	}
 	n, max := &g.tools, g.cfg.MaxTools
 	if kind == "worker" {

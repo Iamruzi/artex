@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Autumn-27/artex/mcpguard"
 	"github.com/Autumn-27/norma/agentcore"
 	actool "github.com/Autumn-27/norma/tool"
 )
@@ -46,7 +47,7 @@ func governTool(t actool.CoreTool) actool.CoreTool { return &governedTool{t} }
 
 func costlyTool(name string) bool {
 	switch name {
-	case "Bash", "shell_open", "shell_send", "WebFetch", "WebSearch":
+	case "Bash", "shell_open", "shell_send", "WebFetch", "WebSearch", "measure_http_pair", "cve_search", "poc_search", "poc_get":
 		return true
 	}
 	// Custom executors also gate their editor test endpoint in the server.
@@ -64,6 +65,8 @@ func (g *governedTool) Call(ctx context.Context, in json.RawMessage, tc *actool.
 			status = "cancelled"
 		case res.IsError && strings.HasPrefix(res.Flatten(), "resource_blocked:"):
 			status = "resource_blocked"
+		case errors.Is(err, mcpguard.ErrBlocked):
+			status = "mcp_blocked"
 		case err != nil || res.IsError:
 			if status != "resource_blocked" {
 				status = "failed"

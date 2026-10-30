@@ -1024,6 +1024,8 @@ export interface NotificationDelivery {
 
 // ---- LLM config ----
 export interface LLMProfile {
+  model_prompt?: ModelPromptConfig;
+  model_prompt_digest?: string;
   id: string;
   name: string;
   format: "openai" | "anthropic" | "openai-responses";
@@ -1056,6 +1058,45 @@ export interface LLMProfile {
   session_header_key?: string;
   // 本配置对重试的覆盖（建连/空响应/同 provider 安全窗口）。留空/全 0 = 跟随全局策略。
   retry?: LLMRetryOverride;
+}
+
+export interface ModelPromptConfig {
+  mode: "" | "authorized-testing" | "compact-tools" | "custom";
+  text?: string;
+}
+
+export interface ModelPromptPreview {
+  mode: string;
+  version: string;
+  digest: string;
+  text: string;
+  bytes: number;
+  inference_performed: false;
+}
+
+export interface ModelPromptEvaluation {
+  config_digest: string;
+  suite: string;
+  started_at: string;
+  digest: string;
+  model: string;
+  profile_id: string;
+  mode: string;
+  completed: boolean;
+  requests: number;
+  baseline_passed: number;
+  adapted_passed: number;
+  samples: {
+    case: string;
+    variant: string;
+    status: string;
+    response: string;
+    error?: string;
+    elapsed_ms: number;
+    requests: number;
+    tool_executions: number;
+    usage: { input_tokens: number; output_tokens: number };
+  }[];
 }
 
 // ---- LLM 重试策略 ----
@@ -1205,6 +1246,12 @@ export interface SkillItem {
 
 // SkillCall 是一次 Skill() 调用（单个 skill 的最近调用列表）。
 export interface SkillCall {
+  load_status?: string;
+  elapsed_ms?: number;
+  guidance_bytes?: number;
+  content_sha256?: string;
+  tool_use_id?: string;
+  intent_id?: number;
   ts: string;
   agent_key: string;
   task_id: number; // 0 = 非任务场景（对话会话）
@@ -1744,6 +1791,7 @@ export interface InterceptExecution {
   items: Activity[];
 }
 export interface ResourceStatus {
+  protection_enabled: boolean;
   at: string;
   cpu_percent: number;
   memory_percent: number;
@@ -1760,4 +1808,68 @@ export interface ResourceStatus {
   tools: number;
   limits: { max_workers: number; max_tools: number };
   alerts: { at: string; state: string; reason: string }[];
+}
+
+export interface KnowledgeEntry {
+  id: number;
+  title: string;
+  kind: "poc" | "advisory" | "methodology" | "negative" | "context";
+  product: string;
+  versions: string;
+  cves: string[];
+  tags: string[];
+  summary: string;
+  content?: string;
+  source_url: string;
+  source_ref: string;
+  sha256: string;
+  state: "draft" | "active" | "retired";
+  scope_task_id?: number | null;
+  expires_at?: string | null;
+  updated_at: string;
+}
+export interface KnowledgeEvent {
+  id: number;
+  task_id?: number;
+  intent_id: number;
+  agent: string;
+  action: string;
+  status: string;
+  entry_ids: number[];
+  sha256: string;
+  bytes: number;
+  created_at: string;
+}
+export interface PublicCVEResult {
+  total_results: number;
+  fetched_windows: number[];
+  candidates: {
+    cve: string;
+    summary: string;
+    applicability: string;
+    version_conditions: string[];
+    references: { url: string; kind: string; source: string }[];
+  }[];
+  source: string;
+  retrieved_at: string;
+  partial: boolean;
+  notice: string;
+}
+export interface PublicPoCResult {
+  cve: string;
+  repositories: { url: string; name: string; summary: string; updated: string; status: string }[];
+  source: string;
+  retrieved_at: string;
+  partial: boolean;
+  notice: string;
+}
+export interface PoCSource {
+  review?: { status: string; cve_mention: string; observations: string[]; required_checks: string[] };
+  repository: string;
+  path: string;
+  url: string;
+  blob_sha: string;
+  content: string;
+  retrieved_at: string;
+  notice: string;
 }

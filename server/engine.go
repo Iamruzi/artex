@@ -904,20 +904,25 @@ func (e *Engine) plannerLoop(ctx context.Context, t *Task) {
 		if e.isSettling(t.ID) {
 			return
 		}
-		// goalless（人工直投）分支：任务已无 open 目标时 planner 不跑——跑了会重判
+		// goalless（人工直投）分支：目标证明已齐或目标均显式放弃/无目标时 planner 不跑——跑了会重判
 		// met→cancelExec 杀掉用户经主 agent 直投的意图。是否结束改由 frontier 决定：
 		// 还有 open/running 意图 → 保持 running、静默等待；意图已全部跑干 → 落 done。
 		// 整段纯 Go、不触发任何 LLM 调用，也不打规划轮 marker。
-		if open, err := t.Store.HasOpenGoal(); err == nil && !open {
+		pendingGoals, err := t.Store.NeedsGoalReview(ctx)
+		if err != nil {
+			log.Printf("[planner] task %s 读取目标证明失败: %v", t.ID, err)
+			return
+		}
+		if !pendingGoals {
 			t.drainTriggers() // 丢弃累积的 done/finding 触发，避免 goalless 长会话里无界增长
 			if active, err := t.Store.HasActiveIntent(); err == nil && !active {
 				// frontier 抽干且无在跑意图 → 收尾。用 Guarded 版做 CAS，避免踩到并发的
 				// pause/delete/超时收尾的状态转换。
-				if won, err := e.m.SetTaskStatusGuarded(t.ID, "done"); err != nil {
+				if won, err := e.m.completeTaskChecked(ctx, t, false); err != nil {
 					log.Printf("[goalless] task %s 收尾落 done 失败: %v", t.ID, err)
 				} else if won {
 					e.emitActivity(t, db.Activity{Worker: "system", Kind: "text",
-						Summary: "目标已全部达成，直投意图已执行完毕，任务结束"})
+						Summary: "当前无待处理目标和意图，执行已结束；目标达成以证明记录为准"})
 				}
 			}
 			return // goalless 分支永不进入 planner.Plan
@@ -946,14 +951,21 @@ func (e *Engine) plannerLoop(ctx context.Context, t *Task) {
 		met, reason, err := planner.Plan(ectx, taskIDInt, e.m.assets, t.Store, t.Goal, triggers, emit)
 		e.EndLLMCall(t.ID)
 		switch {
-		case err != nil && ectx.Err() == nil:
+		case ectx.Err() != nil || e.IsPaused(t.ID) || e.IsDeleting(t.ID):
+			return
+		case err != nil:
 			log.Printf("[planner] task %s 规划出错: %v", t.ID, err)
 		case met:
-			log.Printf("[planner] task %s 判定目标达成: %s", t.ID, reason)
-			// 所有目标达成 → 持久化任务状态为 done（前端 DTO 会优先展示该终态）。
-			if err := e.m.SetTaskStatus(t.ID, "done"); err != nil {
+			// Recheck live proof and lifecycle state; a model's per-run flag cannot
+			// overwrite a pause, deletion or a terminal outcome that already won.
+			if won, err := e.m.CompleteTaskWithGoals(ectx, t); err != nil {
 				log.Printf("[planner] task %s 标记完成落库失败: %v", t.ID, err)
+				return
+			} else if !won {
+				log.Printf("[planner] task %s 未通过当前证明/任务状态核对，未宣布目标达成", t.ID)
+				return
 			}
+			log.Printf("[planner] task %s 目标证明及任务状态核对通过: %s", t.ID, reason)
 			// 任务已判完成 → 立刻取消在跑的 worker：它们手头的意图跑出来也没意义了。
 			// 下一轮 worker 循环撞终态门就不再领新意图;被取消的这批走下方"任务已完成"分支
 			// 归为 stopped(而非 blocked)。

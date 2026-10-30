@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/Autumn-27/artex/mcpguard"
 	"github.com/Autumn-27/artex/resourceguard"
 )
 
@@ -28,6 +29,7 @@ type Database struct {
 
 // Config is the on-disk config file shape.
 type Config struct {
+	MCPGuard        mcpguard.Config      `json:"mcp_guard"`
 	ResourceGuard   resourceguard.Config `json:"resource_guard"`
 	Database        Database             `json:"database"`
 	SkillDir        string               `json:"skill_dir"`

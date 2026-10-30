@@ -2,14 +2,18 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"path/filepath"
 	"strings"
 
 	"github.com/Autumn-27/artex/agent"
+	"github.com/Autumn-27/artex/config"
 	"github.com/Autumn-27/artex/db"
+	"github.com/Autumn-27/artex/mcpguard"
 	"github.com/Autumn-27/artex/traffic"
 	"github.com/Autumn-27/norma/skill"
 	actool "github.com/Autumn-27/norma/tool"
@@ -23,6 +27,8 @@ import (
 // capture is on) to add to EVERY agent's base list — the DB tools table then
 // filters them per-agent binding. Empty/nil → no host tools this run (capture off).
 func wireAgentAugment(pg *db.DB, skillDir string, hostTools func() ([]actool.CoreTool, map[string][]string)) {
+	// Shared across runs/agents; reconnecting must not reset a server's cooldown.
+	mcpGate := mcpguard.New(config.Load().MCPGuard)
 	agent.ToolAugment = func(ctx context.Context, agentKey string) ([]actool.CoreTool, agent.DeferredInfo, func()) {
 		a, err := pg.GetAgentByKey(agentKey)
 		if err != nil || a == nil {
@@ -95,6 +101,7 @@ func wireAgentAugment(pg *db.DB, skillDir string, hostTools func() ([]actool.Cor
 					continue
 				}
 				for _, t := range ts {
+					t = mcpGate.Wrap(mcpIsolationKey(m), t)
 					extra = append(extra, t)
 					allNames = append(allNames, t.Name())
 					serverTools[m.Name] = append(serverTools[m.Name], t.Name())
@@ -179,6 +186,13 @@ func wireAgentAugment(pg *db.DB, skillDir string, hostTools func() ([]actool.Cor
 	}
 }
 
+// Hash configuration so a changed endpoint/credential has independent health.
+// The key is process-local and never logged; raw URLs and credentials stay out.
+func mcpIsolationKey(m *db.MCPServer) string {
+	body, _ := json.Marshal([]any{m.ID, m.Name, m.Transport, m.Command, m.Args, m.Env, m.URL, m.Insecure})
+	return fmt.Sprintf("%x", sha256.Sum256(body))
+}
+
 func idSet(ids []int64) map[int64]bool {
 	m := make(map[int64]bool, len(ids))
 	for _, id := range ids {
@@ -240,7 +254,15 @@ func wireTools(pg *db.DB, domainReg map[string]actool.CoreTool) {
 		rows, err := pg.ListTools()
 		if err != nil {
 			log.Printf("[tools] 读取工具表失败，按代码默认放行: %v", err)
-			return tools
+			// New native retrieval/measurement tools require catalog membership even when
+			// legacy tools retain the historical fallback on a read failure.
+			out := make([]actool.CoreTool, 0, len(tools))
+			for _, tool := range tools {
+				if !requiresExplicitNativeBinding(tool.Name()) {
+					out = append(out, tool)
+				}
+			}
+			return out
 		}
 		byKey := make(map[string]*db.Tool, len(rows))
 		for _, t := range rows {
@@ -258,6 +280,9 @@ func wireTools(pg *db.DB, domainReg map[string]actool.CoreTool) {
 		for _, t := range tools {
 			row, known := byKey[t.Name()]
 			if !known { // MCP/skill/host tool: no row → untouched
+				if requiresExplicitNativeBinding(t.Name()) {
+					continue
+				}
 				out = append(out, t)
 				continue
 			}
@@ -332,6 +357,14 @@ func wireTools(pg *db.DB, domainReg map[string]actool.CoreTool) {
 		}
 		return out
 	}
+}
+
+func requiresExplicitNativeBinding(name string) bool {
+	switch name {
+	case "measure_http_pair", "get_http_measurement", "kb_search", "kb_get", "kb_add", "cve_search", "poc_search", "poc_get":
+		return true
+	}
+	return false
 }
 
 // bashUANote 是批 5 B4 追加进 worker Bash 描述的 UA 使用纪律(与

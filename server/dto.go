@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Autumn-27/artex/db"
+	"github.com/Autumn-27/artex/modelprompt"
 	"github.com/Autumn-27/artex/traffic"
 )
 
@@ -586,19 +587,21 @@ func agentDTOs(in []*db.Agent) []AgentDTO {
 // ---- LLMProfile (frontend "LLMProfile") — string id ----
 
 type LLMProfileDTO struct {
-	ID              string  `json:"id"`
-	Name            string  `json:"name"`
-	Format          string  `json:"format"`
-	BaseURL         string  `json:"base_url,omitempty"`
-	Proxy           string  `json:"proxy,omitempty"`
-	Model           string  `json:"model"`
-	APIKeyHint      string  `json:"api_key_hint,omitempty"`
-	RatePerSecond   float64 `json:"rate_per_second"`
-	RatePerMinute   float64 `json:"rate_per_minute"`
-	ContextWindowK  int     `json:"context_window_k"`
-	ThinkingType    string  `json:"thinking_type"`
-	ReasoningEffort string  `json:"reasoning_effort"`
-	IsDefault       bool    `json:"is_default"`
+	ModelPrompt       modelprompt.Config `json:"model_prompt"`
+	ModelPromptDigest string             `json:"model_prompt_digest"`
+	ID                string             `json:"id"`
+	Name              string             `json:"name"`
+	Format            string             `json:"format"`
+	BaseURL           string             `json:"base_url,omitempty"`
+	Proxy             string             `json:"proxy,omitempty"`
+	Model             string             `json:"model"`
+	APIKeyHint        string             `json:"api_key_hint,omitempty"`
+	RatePerSecond     float64            `json:"rate_per_second"`
+	RatePerMinute     float64            `json:"rate_per_minute"`
+	ContextWindowK    int                `json:"context_window_k"`
+	ThinkingType      string             `json:"thinking_type"`
+	ReasoningEffort   string             `json:"reasoning_effort"`
+	IsDefault         bool               `json:"is_default"`
 	// 轮询(故障转移)参数：priority 越大越先被选中(激活配置恒为链首)；
 	// pool_exclude=true 则不作为故障转移目标，但仍可被 agent/任务显式绑定。
 	Priority    int  `json:"priority"`
@@ -621,26 +624,28 @@ type LLMProfileDTO struct {
 
 func llmProfileDTO(p *db.LLMProfile) LLMProfileDTO {
 	return LLMProfileDTO{
-		ID:               i64s(p.ID),
-		Name:             p.Name,
-		Format:           p.Format,
-		BaseURL:          p.BaseURL,
-		Proxy:            p.Proxy,
-		Model:            p.Model,
-		APIKeyHint:       p.APIKeyHint,
-		RatePerSecond:    p.RatePerSecond,
-		RatePerMinute:    p.RatePerMinute,
-		ContextWindowK:   p.ContextWindowK,
-		ThinkingType:     p.ThinkingType,
-		ReasoningEffort:  p.ReasoningEffort,
-		IsDefault:        p.IsDefault,
-		Priority:         p.Priority,
-		PoolExclude:      p.PoolExclude,
-		Streaming:        p.Streaming,
-		MaxTokens:        p.MaxTokens,
-		MaxTokensField:   p.MaxTokensField,
-		SessionHeaderKey: p.SessionHeaderKey,
-		Retry:            p.Retry,
+		ModelPrompt:       p.ModelPrompt,
+		ModelPromptDigest: p.ModelPrompt.Digest(),
+		ID:                i64s(p.ID),
+		Name:              p.Name,
+		Format:            p.Format,
+		BaseURL:           p.BaseURL,
+		Proxy:             p.Proxy,
+		Model:             p.Model,
+		APIKeyHint:        p.APIKeyHint,
+		RatePerSecond:     p.RatePerSecond,
+		RatePerMinute:     p.RatePerMinute,
+		ContextWindowK:    p.ContextWindowK,
+		ThinkingType:      p.ThinkingType,
+		ReasoningEffort:   p.ReasoningEffort,
+		IsDefault:         p.IsDefault,
+		Priority:          p.Priority,
+		PoolExclude:       p.PoolExclude,
+		Streaming:         p.Streaming,
+		MaxTokens:         p.MaxTokens,
+		MaxTokensField:    p.MaxTokensField,
+		SessionHeaderKey:  p.SessionHeaderKey,
+		Retry:             p.Retry,
 	}
 }
 

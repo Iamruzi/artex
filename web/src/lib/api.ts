@@ -69,6 +69,9 @@ import type {
   MCPServer,
   MCPTool,
   MissingSkill,
+  ModelPromptConfig,
+  ModelPromptEvaluation,
+  ModelPromptPreview,
   ModelTokenStat,
   NotificationChannel,
   NotificationDelivery,
@@ -257,7 +260,7 @@ function interceptPageQuery(page: number, size: number, filter: InterceptApprova
 
 export const api = {
   // 后端应用版本号（release 时由 ldflags 注入，默认 "dev"）。
-  health: () => get<{ ok: boolean; service: string; version: string }>("/health"),
+  health: () => get<{ ok: boolean; service: string; version: string; display_version?: string; edition?: string; revision?: string; dirty?: boolean }>("/health"),
 
   // ---- auth ----
   authStatus: () => get<{ initialized: boolean }>("/auth/status"),
@@ -393,6 +396,34 @@ export const api = {
   // ---- stats ----
   stats: (task?: string) => get<Stats>(`/stats${tq(task)}`),
   resources: (signal?: AbortSignal) => http<import("@/lib/types").ResourceStatus>("/resources", { signal }),
+  knowledge: (query = "", product = "", cve = "") =>
+    get<{ entries: import("@/lib/types").KnowledgeEntry[]; events: import("@/lib/types").KnowledgeEvent[] }>(
+      `/knowledge?${new URLSearchParams({ q: query, product, cve })}`,
+    ),
+  knowledgeEntry: (id: number) => get<import("@/lib/types").KnowledgeEntry>(`/knowledge/${id}`),
+  saveKnowledge: (entry: Partial<import("@/lib/types").KnowledgeEntry>) =>
+    post<import("@/lib/types").KnowledgeEntry>("/knowledge", entry),
+  searchPublicCVE: (product: string, version: string, cve: string) =>
+    post<{ result: import("@/lib/types").PublicCVEResult; cached: boolean }>("/knowledge/public-search", {
+      mode: "cve",
+      product,
+      version,
+      cve,
+    }),
+  searchPublicPoC: (cve: string) =>
+    post<{ result: import("@/lib/types").PublicPoCResult; cached: boolean }>("/knowledge/public-search", {
+      mode: "poc",
+      cve,
+    }),
+  readPoCSource: (cve: string, repository: string, path = "") =>
+    post<{ result: import("@/lib/types").PoCSource; cached: boolean }>("/knowledge/public-search", {
+      mode: "source",
+      cve,
+      repository,
+      path,
+    }),
+  setResourceProtection: (enabled: boolean) =>
+    put<import("@/lib/types").ResourceStatus>("/resources/protection", { enabled }),
   // 资产测试覆盖度(粗估，供参考)：范围内资产被 fact 碰过的占比 + 按类型的 总数/已测。
   taskCoverage: (id: string) =>
     get<{
@@ -982,6 +1013,11 @@ export const api = {
       session_header_key,
     }),
   llmProfiles: () => get<{ profiles: LLMProfile[] }>("/llm/profiles").then((r) => arr(r.profiles)),
+  modelPromptPreview: (config: ModelPromptConfig) => post<ModelPromptPreview>("/llm/prompt/preview", config),
+  modelPromptEvaluation: (id: string, signal?: AbortSignal) =>
+    http<ModelPromptEvaluation>(`/llm/profiles/${id}/prompt-eval`, { method: "POST", signal }),
+  modelPromptLastEvaluation: (id: string) =>
+    get<{ result: ModelPromptEvaluation | null; stale: boolean }>(`/llm/profiles/${id}/prompt-eval`),
   saveLLMProfile: (p: {
     id?: number; // omit/0 = create; set = update that profile
     name: string;
@@ -1002,6 +1038,7 @@ export const api = {
     max_tokens_field?: string; // ""=max_tokens(默认) | "max_completion_tokens"（仅 openai 格式）
     session_header_key?: string; // 非空=每次请求带该 HTTP 头，头值=当前会话 session id；""=不发送
     retry?: LLMRetryOverride; // 本配置的重试覆盖；各项留 0 = 跟随全局重试策略
+    model_prompt?: ModelPromptConfig;
   }) => post<{ id: number }>("/llm/profiles", p),
   deleteLLMProfile: (id: string) => del<{ deleted: number }>(`/llm/profiles/${id}`),
   activateLLMProfile: (id: string) => post<{ ok: boolean }>("/llm/profiles/active", { id: Number(id) }),

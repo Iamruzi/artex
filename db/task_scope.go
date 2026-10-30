@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"net"
@@ -235,7 +236,12 @@ func (s *AssetStore) DeleteTaskScope(taskID, scopeID int64) (bool, error) {
 
 // ListTaskScope returns all scope rows for a task.
 func (s *AssetStore) ListTaskScope(taskID int64) ([]TaskScope, error) {
-	rows, err := s.db.Query(`
+	return s.ListTaskScopeContext(context.Background(), taskID)
+}
+
+// ListTaskScopeContext allows per-request scope checks to honor batch cancellation.
+func (s *AssetStore) ListTaskScopeContext(ctx context.Context, taskID int64) ([]TaskScope, error) {
+	rows, err := s.db.QueryContext(ctx, `
 SELECT ts.id, ts.kind, COALESCE(ts.company_id,0), COALESCE(c.name,''), COALESCE(ts.domain,''),
        COALESCE(ts.net::text,''), COALESCE(ts.value,''), ts.source, COALESCE(ts.reason,'')
 FROM task_scope ts

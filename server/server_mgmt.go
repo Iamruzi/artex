@@ -25,6 +25,7 @@ import (
 
 	"github.com/Autumn-27/artex/agent"
 	"github.com/Autumn-27/artex/db"
+	"github.com/Autumn-27/artex/modelprompt"
 	"github.com/Autumn-27/norma/llm"
 	"github.com/Autumn-27/norma/skill"
 )
@@ -1536,7 +1537,7 @@ func skillRelPath(file string) (string, string) {
 	if clean == "." || filepath.IsAbs(clean) || strings.HasPrefix(clean, "..") {
 		return "", "invalid path"
 	}
-	return clean, ""
+	return filepath.ToSlash(clean), ""
 }
 
 // walkSkillFiles returns all files under root (relative to root), sorted,
@@ -1555,9 +1556,9 @@ func walkSkillFiles(root string) ([]string, error) {
 			return nil
 		}
 		if d.IsDir() {
-			entries = append(entries, rel+"/")
+			entries = append(entries, filepath.ToSlash(rel)+"/")
 		} else {
-			entries = append(entries, rel)
+			entries = append(entries, filepath.ToSlash(rel))
 		}
 		return nil
 	})
@@ -1799,8 +1800,9 @@ func (s *Server) pgSaveProfile(w http.ResponseWriter, r *http.Request) {
 	// would get wrong — legacy/partial clients that never send it stay streaming.
 	var body struct {
 		db.LLMProfile
-		APIKey    string `json:"api_key"`
-		Streaming *bool  `json:"streaming"`
+		APIKey      string              `json:"api_key"`
+		Streaming   *bool               `json:"streaming"`
+		ModelPrompt *modelprompt.Config `json:"model_prompt"`
 	}
 	if err := decode(r, &body); err != nil {
 		writeErr(w, 400, err.Error())
@@ -1809,6 +1811,22 @@ func (s *Server) pgSaveProfile(w http.ResponseWriter, r *http.Request) {
 	p := body.LLMProfile
 	p.APIKey = body.APIKey
 	p.Streaming = body.Streaming == nil || *body.Streaming
+	if body.ModelPrompt != nil {
+		p.ModelPrompt = *body.ModelPrompt
+	} else if p.ID != 0 {
+		previous, err := pg.ProfileByID(p.ID)
+		if err != nil {
+			writeErr(w, 500, err.Error())
+			return
+		}
+		if previous != nil {
+			p.ModelPrompt = previous.ModelPrompt
+		}
+	}
+	if err := p.ModelPrompt.Validate(); err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
 	// 输出上限:负数无意义,归零(= 不发送该字段)。字段名开关只有 Chat Completions
 	// 用得上——anthropic 与 openai-responses 各自定死了字段名,存下来只会误导后续读者,
 	// 故非 openai 格式一律清空。未知取值同样清空,避免把 DB CHECK 的报错甩给用户。

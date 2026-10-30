@@ -7,7 +7,7 @@ import (
 )
 
 // SkillUsage is one Skill() invocation — the always-on skill call ledger. Written
-// from the Skill meta-tool's OnInvoke hook (server/assembly.go), one row per load.
+// after the metered Skill meta-tool returns, one row per invocation request.
 // Carries only dimensions (which skill, which agent, which task/session), never the
 // caller's args text — args_len is kept so an "empty vs substantial context" split
 // is still possible without storing prompt content, mirroring llm_usage.
@@ -15,6 +15,11 @@ import (
 // Rows deliberately outlive their task: skill_usage has no foreign keys, so deleting
 // a task keeps its skill statistics intact (same rationale as llm_usage).
 type SkillUsage struct {
+	LoadStatus    string `json:"load_status"`
+	ElapsedMS     int64  `json:"elapsed_ms"`
+	GuidanceBytes int    `json:"guidance_bytes"`
+	ContentSHA256 string `json:"content_sha256"`
+	ToolUseID     string `json:"tool_use_id"`
 	Skill         string `json:"skill"`          // skill directory name (matches agent_skill_visibility.skill_name)
 	AgentKey      string `json:"agent_key"`      // worker / planner / mainagent / custom agent key
 	TaskID        int64  `json:"task_id"`        // 0 for non-task runs (chat sessions)
@@ -28,11 +33,15 @@ type SkillUsage struct {
 // InsertSkillUsage appends one ledger row. Best-effort: callers log and continue on
 // error (a lost metering row must never break a skill invocation).
 func (d *DB) InsertSkillUsage(u *SkillUsage) error {
+	status := u.LoadStatus
+	if status == "" {
+		status = "legacy_requested"
+	}
 	_, err := d.Exec(`
-INSERT INTO skill_usage(skill, agent_key, task_id, exploration_id, intent_id, session_id, args_len, found)
-VALUES ($1, NULLIF($2,''), $3, $4, $5, NULLIF($6,''), $7, $8)`,
+INSERT INTO skill_usage(skill, agent_key, task_id, exploration_id, intent_id, session_id, args_len, found,load_status,elapsed_ms,guidance_bytes,content_sha256,tool_use_id)
+VALUES ($1, NULLIF($2,''), $3, $4, $5, NULLIF($6,''), $7, $8,$9,$10,$11,$12,$13)`,
 		u.Skill, u.AgentKey, nullIfZero(u.TaskID), nullIfZero(u.ExplorationID),
-		nullIfZero(u.IntentID), u.SessionID, u.ArgsLen, u.Found)
+		nullIfZero(u.IntentID), u.SessionID, u.ArgsLen, u.Found, status, u.ElapsedMS, u.GuidanceBytes, u.ContentSHA256, u.ToolUseID)
 	return err
 }
 
@@ -153,11 +162,17 @@ ORDER BY COUNT(*) DESC, skill`)
 
 // SkillCall is one row of a skill's recent-call list (detail panel).
 type SkillCall struct {
-	TS        time.Time `json:"ts"`
-	AgentKey  string    `json:"agent_key"`
-	TaskID    int64     `json:"task_id"`
-	SessionID string    `json:"session_id"`
-	ArgsLen   int       `json:"args_len"`
+	LoadStatus    string    `json:"load_status"`
+	ElapsedMS     int64     `json:"elapsed_ms"`
+	GuidanceBytes int       `json:"guidance_bytes"`
+	ContentSHA256 string    `json:"content_sha256"`
+	ToolUseID     string    `json:"tool_use_id"`
+	IntentID      int64     `json:"intent_id"`
+	TS            time.Time `json:"ts"`
+	AgentKey      string    `json:"agent_key"`
+	TaskID        int64     `json:"task_id"`
+	SessionID     string    `json:"session_id"`
+	ArgsLen       int       `json:"args_len"`
 }
 
 // RecentSkillCalls returns the most recent invocations of one skill, newest first.
@@ -166,7 +181,8 @@ func (d *DB) RecentSkillCalls(skill string, limit int) ([]SkillCall, error) {
 		limit = 50
 	}
 	rows, err := d.Query(`
-SELECT ts, COALESCE(agent_key,''), COALESCE(task_id,0), COALESCE(session_id,''), args_len
+SELECT ts, COALESCE(agent_key,''), COALESCE(task_id,0), COALESCE(session_id,''), args_len,
+load_status,elapsed_ms,guidance_bytes,content_sha256,tool_use_id,COALESCE(intent_id,0)
 FROM skill_usage
 WHERE skill = $1 AND found
 ORDER BY ts DESC
@@ -178,7 +194,7 @@ LIMIT $2`, skill, limit)
 	out := []SkillCall{}
 	for rows.Next() {
 		var c SkillCall
-		if err := rows.Scan(&c.TS, &c.AgentKey, &c.TaskID, &c.SessionID, &c.ArgsLen); err != nil {
+		if err := rows.Scan(&c.TS, &c.AgentKey, &c.TaskID, &c.SessionID, &c.ArgsLen, &c.LoadStatus, &c.ElapsedMS, &c.GuidanceBytes, &c.ContentSHA256, &c.ToolUseID, &c.IntentID); err != nil {
 			return nil, err
 		}
 		out = append(out, c)

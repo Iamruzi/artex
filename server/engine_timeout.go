@@ -255,7 +255,13 @@ func (e *Engine) settleTask(ctx context.Context, t *Task) {
 	// 守卫(SetTaskStatusGuarded)会拒绝覆盖,保留 completed 语义。
 	status := "timeout"
 	if met {
-		status = "done"
+		if won, err := e.m.CompleteTaskWithGoals(ctx, t); err != nil {
+			log.Printf("[deadline] task %s 目标证明核对失败: %v", t.ID, err)
+			return
+		} else if won {
+			log.Printf("[deadline] task %s 目标证明核对通过，收尾完成", t.ID)
+			return
+		}
 	}
 	won, err := e.m.SetTaskStatusGuarded(t.ID, status)
 	switch {
@@ -303,8 +309,11 @@ func (e *Engine) runFinalPlannerRound(ctx context.Context, t *Task) (met bool) {
 	e.EndLLMCall(t.ID)
 	if err != nil {
 		log.Printf("[deadline] task %s 终局规划出错: %v", t.ID, err)
+		return false
+	} else if fctx.Err() != nil {
+		return false
 	} else if met {
-		log.Printf("[deadline] task %s 终局判定目标达成: %s", t.ID, reason)
+		log.Printf("[deadline] task %s 终局请求核对目标证明: %s", t.ID, reason)
 	}
 	return met
 }

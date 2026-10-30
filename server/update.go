@@ -224,6 +224,16 @@ func (s *Server) updateCheck(w http.ResponseWriter, r *http.Request) {
 		"boot_notice": boot.Detail,
 		"rolled_back": boot.RolledBack,
 	}
+	// This fork has its own publisher. Never replace it with upstream binaries
+	// merely because its independent version happens to compare lower.
+	if BuildMetadata.Edition == "Byte2Cat" {
+		out["has_update"] = false
+		out["comparable"] = false
+		out["repo"] = ""
+		out["reason"] = "Byte2Cat 整合版的独立更新签名尚未配置，请从本版本源码构建升级"
+		writeJSON(w, 200, out)
+		return
+	}
 
 	// 顶栏提示走缓存（默认）；用户点"检查更新"时带 force=1 强制回源。
 	force := r.URL.Query().Get("force") != ""
@@ -268,6 +278,10 @@ func (s *Server) updateCheck(w http.ResponseWriter, r *http.Request) {
 // 立刻返回 202，实际工作在后台 goroutine 上跑：整包下载可能要几分钟，
 // 挂在请求上会被反代超时掐断。进度走 /api/update/stream。
 func (s *Server) updateApply(w http.ResponseWriter, r *http.Request) {
+	if BuildMetadata.Edition == "Byte2Cat" {
+		writeErr(w, http.StatusConflict, "Byte2Cat 整合版暂不提供在线二进制更新，防止被上游版本覆盖；请从本版本源码构建升级")
+		return
+	}
 	current := BuildVersion
 
 	// 走缓存：确保装上的就是用户在界面上看到并确认的那个版本。

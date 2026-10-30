@@ -23,6 +23,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Autumn-27/artex/mcpguard"
 	"github.com/Autumn-27/norma/llm"
 	"github.com/Autumn-27/norma/permission"
 	actool "github.com/Autumn-27/norma/tool"
@@ -30,6 +31,9 @@ import (
 
 const protocolVersion = "2025-06-18"
 const legacySSEProtocolVersion = "2024-11-05"
+
+// Bound transport allocation before Capture applies the model-facing limit.
+const maxResponseBytes = 8 << 20
 
 // ToolName mirrors mcp.ToolName so remote tools share the mcp__server__tool scheme.
 func ToolName(server, name string) string { return "mcp__" + server + "__" + name }
@@ -181,7 +185,7 @@ func NewSSE(ctx context.Context, server, sseURL string, headers map[string]strin
 
 func readSSEEndpoint(r *bufio.Reader, base string) (string, error) {
 	for {
-		line, err := r.ReadString('\n')
+		line, err := readBoundedLine(r)
 		if err != nil {
 			return "", fmt.Errorf("mcp sse endpoint: %w", err)
 		}
@@ -211,7 +215,7 @@ func readSSEEndpoint(r *bufio.Reader, base string) (string, error) {
 func (c *Client) readLegacySSE(r *bufio.Reader) {
 	defer close(c.streamDone)
 	for {
-		line, err := r.ReadString('\n')
+		line, err := readBoundedLine(r)
 		if err != nil {
 			if !errors.Is(err, context.Canceled) {
 				select {
@@ -309,16 +313,17 @@ func (c *Client) wrap(rt remoteTool) actool.CoreTool {
 				IsError bool `json:"isError"`
 			}
 			if err := json.Unmarshal(raw, &res); err != nil {
+				mcpguard.NoteTransportFailure(ctx)
 				return actool.Errorf("Error: bad MCP response: " + err.Error()), nil
 			}
-			var text string
+			var text strings.Builder
 			for _, blk := range res.Content {
-				text += blk.Text
+				text.WriteString(blk.Text)
 			}
 			// 与内置/自定义工具一致：超长输出走 Capture——按会话 MaxOutputChars（默认
 			// 30000）截断，配了 ToolOutputDir 时全量溢写到磁盘只留 head + 指针，避免大
 			// MCP 结果整段灌爆上下文。
-			return actool.Result{Content: []llm.ContentBlock{llm.TextBlock(actool.Capture(tc, text))}, IsError: res.IsError}, nil
+			return actool.Result{Content: []llm.ContentBlock{llm.TextBlock(actool.Capture(tc, text.String()))}, IsError: res.IsError}, nil
 		},
 	})
 }
@@ -400,7 +405,12 @@ func (c *Client) call(ctx context.Context, method string, params any) (json.RawM
 		return nil, err
 	}
 	if resp == nil {
+		mcpguard.NoteTransportFailure(ctx)
 		return nil, fmt.Errorf("mcp: empty response for %s", method)
+	}
+	if resp.ID != id || resp.JSONRPC != "2.0" {
+		mcpguard.NoteTransportFailure(ctx)
+		return nil, fmt.Errorf("mcp: mismatched JSON-RPC response for %s (expected id %d)", method, id)
 	}
 	if resp.Error != nil {
 		return nil, resp.Error
@@ -447,6 +457,7 @@ func (c *Client) roundTrip(ctx context.Context, body rpcRequest, expectResp bool
 
 	resp, err := c.http.Do(req)
 	if err != nil {
+		mcpguard.NoteTransportFailure(ctx)
 		return nil, err
 	}
 	defer resp.Body.Close()
@@ -461,16 +472,24 @@ func (c *Client) roundTrip(ctx context.Context, body rpcRequest, expectResp bool
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		if resp.StatusCode >= 500 {
+			mcpguard.NoteTransportFailure(ctx)
+		}
 		return nil, fmt.Errorf("mcp http %d: %s", resp.StatusCode, readSnippet(resp.Body))
 	}
 	if !expectResp {
 		return nil, nil // notification — no JSON-RPC body to parse
 	}
 	if strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream") {
-		return parseSSE(resp.Body, body.ID)
+		out, err := parseSSE(resp.Body, body.ID)
+		if err != nil {
+			mcpguard.NoteTransportFailure(ctx)
+		}
+		return out, err
 	}
 	var out rpcResponse
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxResponseBytes)).Decode(&out); err != nil {
+		mcpguard.NoteTransportFailure(ctx)
 		return nil, fmt.Errorf("mcp: decode json response: %w", err)
 	}
 	return &out, nil
@@ -511,10 +530,14 @@ func (c *Client) legacyRoundTrip(ctx context.Context, body rpcRequest, expectRes
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
+		mcpguard.NoteTransportFailure(ctx)
 		return nil, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		if resp.StatusCode >= 500 {
+			mcpguard.NoteTransportFailure(ctx)
+		}
 		return nil, fmt.Errorf("mcp sse http %d: %s", resp.StatusCode, readSnippet(resp.Body))
 	}
 	if !expectResp {
@@ -524,9 +547,28 @@ func (c *Client) legacyRoundTrip(ctx context.Context, body rpcRequest, expectRes
 	case response := <-responseCh:
 		return response, nil
 	case err := <-c.streamErr:
+		mcpguard.NoteTransportFailure(ctx)
 		return nil, fmt.Errorf("mcp sse stream: %w", err)
+	case <-c.streamDone:
+		mcpguard.NoteTransportFailure(ctx)
+		return nil, fmt.Errorf("mcp sse stream closed")
 	case <-ctx.Done():
 		return nil, ctx.Err()
+	}
+}
+
+// Reader.ReadString allocates without a limit for a single untrusted SSE line.
+func readBoundedLine(r *bufio.Reader) (string, error) {
+	var line strings.Builder
+	for {
+		part, err := r.ReadSlice('\n')
+		if line.Len()+len(part) > maxResponseBytes {
+			return "", fmt.Errorf("mcp: SSE line exceeds %d bytes", maxResponseBytes)
+		}
+		line.Write(part)
+		if err != bufio.ErrBufferFull {
+			return line.String(), err
+		}
 	}
 }
 
@@ -560,6 +602,9 @@ func parseSSE(r io.Reader, wantID int) (*rpcResponse, error) {
 			continue
 		}
 		if strings.HasPrefix(line, "data:") {
+			if dataBuf.Len()+len(line) > maxResponseBytes {
+				return nil, fmt.Errorf("mcp: SSE response exceeds %d bytes", maxResponseBytes)
+			}
 			dataBuf.WriteString(strings.TrimSpace(line[len("data:"):]))
 		}
 	}

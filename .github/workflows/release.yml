@@ -27,7 +27,7 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     env:
-      ARTEX_PG_DSN: postgres://artex:artex@localhost:5432/artex?sslmode=disable
+      ARTEX_TEST_PG_BASE: postgres://artex:artex@localhost:5432
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -35,7 +35,7 @@ jobs:
           go-version: "1.26"
           cache: true
       - run: go vet ./...
-      - run: go test ./...
+      - run: bash scripts/test-ci-isolated.sh
 
   # ② 前端静态导出（一次），产物给交叉编译各平台复用；tsc 类型检查一并入门
   frontend:
@@ -116,6 +116,7 @@ jobs:
 
   # ④ 汇总所有 zip → 签名校验和 → 创建 GitHub Release
   release:
+    if: vars.ARTEX_ENABLE_BINARY_RELEASES == 'true'
     needs: binaries
     runs-on: ubuntu-latest
     steps:
@@ -155,6 +156,7 @@ jobs:
   # ⑤ 多架构镜像 → 推 Docker Hub（复用 binaries 编好的 Linux 二进制，
   #    镜像里只装工具 + 放二进制；arm64 仅需模拟 apt 层，构建快很多）
   docker:
+    if: vars.ARTEX_DOCKER_IMAGE != ''
     needs: binaries
     runs-on: ubuntu-latest
     steps:
@@ -176,7 +178,7 @@ jobs:
       - uses: docker/metadata-action@v5
         id: meta
         with:
-          images: autumn27/artex
+          images: ${{ vars.ARTEX_DOCKER_IMAGE }}
           tags: |
             type=ref,event=tag
             type=raw,value=latest

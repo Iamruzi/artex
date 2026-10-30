@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Autumn-27/artex/db"
+	"github.com/Autumn-27/artex/modelprompt"
 	"github.com/Autumn-27/norma/llm"
 	"github.com/Autumn-27/norma/transcript"
 )
@@ -62,16 +63,25 @@ func workerFrom(ctx context.Context) string {
 
 // Recorder wraps an llm.Provider and records every completion call.
 type Recorder struct {
-	inner llm.Provider
-	pg    *db.DB
-	model string // model name (from config, not in CompletionRequest)
-	prof  string // LLM profile name (from llm_profiles)
+	modelPrompt modelprompt.Config
+	inner       llm.Provider
+	pg          *db.DB
+	model       string // model name (from config, not in CompletionRequest)
+	prof        string // LLM profile name (from llm_profiles)
 	// thinkingType / reasoningEffort 是配置级思考参数(思考开关 / 思考强度)。它们在
 	// norma 的 buildBody() 里从 provider 配置注入真正的 HTTP body,不出现在
 	// CompletionRequest 上,故 Recorder 需在此单独带一份,序列化时写进录制。
 	thinkingType    string
 	reasoningEffort string
 	enabled         func() bool // reports whether recording is currently on; nil = always record
+}
+
+// WithModelPrompt is configured before publishing a provider to concurrent runs.
+// It changes the recorded normalized view only; the underlying provider applies
+// the same supplement to the outgoing request exactly once.
+func (r *Recorder) WithModelPrompt(config modelprompt.Config) *Recorder {
+	r.modelPrompt = config
+	return r
 }
 
 // Wrap returns a Provider that records calls to pg when enabled() reports true.
@@ -353,6 +363,7 @@ func (r *Recorder) record(req llm.CompletionRequest, session, taskID, worker, re
 
 // serializeRequest builds a JSON representation of the completion request.
 func (r *Recorder) serializeRequest(req llm.CompletionRequest) string {
+	req = modelprompt.Apply(req, r.modelPrompt.Render())
 	m := map[string]any{
 		"system":     req.System,
 		"messages":   req.Messages,

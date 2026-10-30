@@ -24,7 +24,7 @@ var verifierClassRules = []struct {
 	{"xss", []string{"xss", "跨站"}},
 	{"ssrf", []string{"ssrf"}},
 	{"upload", []string{"文件上传", "上传", "upload", "webshell"}},
-	{"auth-bypass", []string{"越权", "未授权", "认证绕过", "鉴权", "idor", "bypass", "逻辑漏洞"}},
+	{"auth-bypass", []string{"越权", "未授权", "认证绕过", "鉴权", "idor", "bola", "authorization", "brokenaccesscontrol", "bypass", "逻辑漏洞"}},
 	{"info-leak", []string{"信息泄露", "敏感信息", "泄露", "leak", "disclosure"}},
 }
 
@@ -33,6 +33,7 @@ var verifierGeneralChecks = []string{
 	"200 ≠ 打通:WAF/拦截页会伪造 200。先做良性/恶意对照,只有差异化响应才算信号;无对照的 200 不构成证据。",
 	"锚定预期特征:结论必须绑定一个只有攻击成功才会出现的特征(独有数据/线性延时/回连/文件落地),响应\"看起来正常\"或\"没报错\"都不构成证据。",
 	"阴性 ≠ 无洞:复现失败先排除环境/防护/时机因素再下 false_positive;无法复现又无法排除时给 inconclusive,不要硬判。",
+	"先核对请求依赖:请求所需的资源创建、对象归属、登录、CSRF token 和流程状态须已满足。缺少前置步骤、过期对象或过期凭据导致的拒绝/失败只能说明本次未证实,不能据此认定安全或漏洞成立。",
 }
 
 // verifierClassChecks 是按类别的专项反证判据(从对应骨架"判据"列蒸馏)。
@@ -40,6 +41,7 @@ var verifierClassChecks = map[string][]string{
 	"sqli": {
 		"真假分叉是核心判据:布尔盲注要同一请求在真/假条件下有可复现的稳定差异;单次报错只说明语法进了 parser,不证明可控。",
 		"时间盲注须做基线对照:先测无 payload 的响应耗时基线,延时须显著超出基线且重复 ≥2 次稳定出现。",
+		"工具列表提供 measure_http_pair 时可用它做交错采样,保留 measurement_node_id 和实际样本。repeatable_delay 只是耗时线索,不能代替漏洞复核;inconclusive 或 no_repeatable_delay 都不能证明不存在漏洞。",
 		"报错回显须落到可控输出:能让自己构造的值(如 version()、字面量)出现在响应里才算成立。",
 	},
 	"xss": {
@@ -62,6 +64,8 @@ var verifierClassChecks = map[string][]string{
 	"auth-bypass": {
 		"双账号对照是硬判据:B 会话访问到 A 预先埋入唯一标记的私有资源才算越权成立;公开数据/公开接口的\"越权\"是误报。",
 		"读与写分别验证:能读不代表能改;仅读到公开/共享数据不得判 verified。",
+		"按身份×资源×操作做对照:记录资源所有者、另一同权限账号、低权限账号与匿名访问的预期权限和实际结果;没有该身份的有效测试凭据就标未测试,不能虚构账号或会话。",
+		"先验证会话有效:用该身份本来允许的操作作正常对照,排除已退出、过期 token、登录页重定向或身份未切换。HTTP 200/403 只是信号,必须核对实际身份、私有内容或真实状态变化。",
 	},
 	"info-leak": {
 		"数据真实性优先:样本须含目标独有的真实数据(能关联到目标资产/用户),默认页、测试数据、公开信息不构成泄露。",

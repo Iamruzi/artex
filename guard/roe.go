@@ -144,6 +144,15 @@ func roeHosts(toolName string, input []byte, cmd string) []string {
 	if cmd != "" {
 		return ExtractHosts(cmd)
 	}
+	if toolName == "measure_http_pair" {
+		var in struct {
+			BaselineURL string `json:"baseline_url"`
+			TestURL     string `json:"test_url"`
+		}
+		if json.Unmarshal(input, &in) == nil {
+			return ExtractHosts(in.BaselineURL + " " + in.TestURL)
+		}
+	}
 	if toolName == "WebFetch" {
 		var in struct {
 			URL string `json:"url"`

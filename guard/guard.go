@@ -127,6 +127,21 @@ func (g *Guard) checkEgress(ev hook.Event, cmd string) (hook.Result, bool) {
 			texts = append(texts, in.URL, in.Body)
 		}
 	}
+	if ev.ToolName == "measure_http_pair" {
+		var in struct {
+			BaselineURL  string            `json:"baseline_url"`
+			TestURL      string            `json:"test_url"`
+			BaselineBody string            `json:"baseline_body"`
+			TestBody     string            `json:"test_body"`
+			Headers      map[string]string `json:"headers"`
+		}
+		if json.Unmarshal(ev.Input, &in) == nil {
+			texts = append(texts, in.BaselineURL, in.TestURL, in.BaselineBody, in.TestBody)
+			for _, value := range in.Headers {
+				texts = append(texts, value)
+			}
+		}
+	}
 	for _, text := range texts {
 		if text == "" {
 			continue

@@ -408,6 +408,12 @@ CREATE TABLE IF NOT EXISTS llm_profiles (
     updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE UNIQUE INDEX IF NOT EXISTS uq_llm_one_default ON llm_profiles(is_default) WHERE is_default;
+ALTER TABLE llm_profiles ADD COLUMN IF NOT EXISTS model_prompt JSONB NOT NULL DEFAULT '{}';
+CREATE TABLE IF NOT EXISTS llm_prompt_evaluations (
+    profile_id BIGINT PRIMARY KEY REFERENCES llm_profiles(id) ON DELETE CASCADE,
+    result JSONB NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 DROP TRIGGER IF EXISTS trg_llm_upd ON llm_profiles;
 CREATE TRIGGER trg_llm_upd BEFORE UPDATE ON llm_profiles
     FOR EACH ROW EXECUTE PROCEDURE set_updated_at();
@@ -932,6 +938,12 @@ CREATE TABLE IF NOT EXISTS skill_usage (
 );
 CREATE INDEX IF NOT EXISTS idx_skill_usage_skill ON skill_usage(skill, ts DESC);
 CREATE INDEX IF NOT EXISTS idx_skill_usage_task  ON skill_usage(task_id);
+-- Historical rows prove an invocation request, not a successful guidance load.
+ALTER TABLE skill_usage ADD COLUMN IF NOT EXISTS load_status TEXT NOT NULL DEFAULT 'legacy_requested';
+ALTER TABLE skill_usage ADD COLUMN IF NOT EXISTS elapsed_ms INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE skill_usage ADD COLUMN IF NOT EXISTS guidance_bytes INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE skill_usage ADD COLUMN IF NOT EXISTS content_sha256 TEXT NOT NULL DEFAULT '';
+ALTER TABLE skill_usage ADD COLUMN IF NOT EXISTS tool_use_id TEXT NOT NULL DEFAULT '';
 
 -- 工具调用账本（见 db/tool_usage.go）。一次实际 CoreTool.Call 一行，只记归属维度，
 -- 不保存工具参数或返回内容。刻意不设外键，任务、会话或自定义工具删除后仍保留统计。
@@ -1517,3 +1529,32 @@ CREATE INDEX IF NOT EXISTS idx_notification_deliveries_batch
     ON notification_deliveries(batch_id) WHERE batch_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_notification_deliveries_channel
     ON notification_deliveries(channel_id, id DESC);
+
+-- Native knowledge is reference material, never a goal proof or finding verdict.
+CREATE TABLE IF NOT EXISTS knowledge_entries (
+    id BIGSERIAL PRIMARY KEY,
+    title TEXT NOT NULL, kind TEXT NOT NULL CHECK(kind IN ('poc','advisory','methodology','negative','context')),
+    product TEXT NOT NULL DEFAULT '', versions TEXT NOT NULL DEFAULT '',
+    cves JSONB NOT NULL DEFAULT '[]', tags JSONB NOT NULL DEFAULT '[]',
+    summary TEXT NOT NULL DEFAULT '', content TEXT NOT NULL,
+    source_url TEXT NOT NULL DEFAULT '', source_ref TEXT NOT NULL,
+    sha256 TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'draft' CHECK(state IN ('draft','active','retired')),
+    scope_task_id BIGINT REFERENCES tasks(id) ON DELETE CASCADE,
+    expires_at TIMESTAMPTZ, updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    search_vector TSVECTOR GENERATED ALWAYS AS (to_tsvector('simple',title||' '||product||' '||summary||' '||content)) STORED
+);
+CREATE INDEX IF NOT EXISTS idx_knowledge_search ON knowledge_entries USING GIN(search_vector);
+CREATE INDEX IF NOT EXISTS idx_knowledge_cves ON knowledge_entries USING GIN(cves);
+CREATE INDEX IF NOT EXISTS idx_knowledge_scope ON knowledge_entries(scope_task_id,state);
+CREATE TABLE IF NOT EXISTS knowledge_lookup_cache (
+    key TEXT PRIMARY KEY, payload JSONB NOT NULL, expires_at TIMESTAMPTZ NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_knowledge_cache_expiry ON knowledge_lookup_cache(expires_at);
+CREATE TABLE IF NOT EXISTS knowledge_events (
+    id BIGSERIAL PRIMARY KEY, task_id BIGINT REFERENCES tasks(id) ON DELETE SET NULL,
+    intent_id BIGINT NOT NULL DEFAULT 0, agent TEXT NOT NULL DEFAULT '',
+    action TEXT NOT NULL, status TEXT NOT NULL, entry_ids JSONB NOT NULL DEFAULT '[]',
+    sha256 TEXT NOT NULL DEFAULT '', bytes INT NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_knowledge_events_task ON knowledge_events(task_id,id DESC);

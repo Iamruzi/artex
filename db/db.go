@@ -367,6 +367,7 @@ var builtinSkillVisibility = map[string][]string{
 	// This does not grant tools/MCPs or change task scope; per-agent opt-outs
 	// remain preserved by the insert-if-absent seed below.
 	"ai-jailbreak":              {"auto", "pentest"},
+	"model-jailbreak-assist":    {"planner", "mainagent", "auto", "pentest", "worker"},
 	"code-diff-security-review": {"auto", "pentest", "worker"},
 	"code-semgrep-audit":        {"auto", "pentest", "worker"},
 	"code-variant-analysis":     {"auto", "pentest", "worker"},

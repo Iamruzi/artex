@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Autumn-27/artex/agent"
 	"github.com/Autumn-27/artex/db"
 	"github.com/Autumn-27/artex/intercept"
 	"github.com/Autumn-27/norma/llm"
@@ -51,6 +52,14 @@ func TestReviewCompletionSendsCurrentCallWithoutHistory(t *testing.T) {
 		t.Fatal("review request cannot return a complete explanation")
 	}
 	body := p.request.Messages[0].Content[0].Text
+	encoded, err := json.Marshal(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if body != agent.WrapUntrustedData("tool-input", string(encoded)) {
+		t.Fatal("review input lost its untrusted-data boundary")
+	}
+	body = strings.TrimSuffix(strings.TrimPrefix(body, "<untrusted-data source=\"tool-input\">\n"), "\n</untrusted-data>")
 	var got intercept.ReviewInput
 	if err := json.Unmarshal([]byte(body), &got); err != nil {
 		t.Fatal(err)

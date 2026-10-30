@@ -584,6 +584,11 @@ func (w *Worker) execute(ctx context.Context, name string, taskID int64, as *db.
 	// 这条启动 user 消息只承载【全局态势 overview】——可降级的了解大局信息，压掉无碍。
 	// overview 罕见地 marshal 失败为空时，回退一句启动词，避免首轮出现空 user 消息。
 	input := overview
+	if !tc.Final {
+		knowledgeBlock := knowledgePreflight(ctx, "worker", tools)
+		input += knowledgeBlock
+		opts.Provider = withKnowledgeReceipt(opts.Provider, "worker", knowledgeBlock)
+	}
 	if strings.TrimSpace(input) == "" {
 		input = "开始执行 system 里领到的意图：只做它、只产生事实、assets、finding、做完即停。"
 	}

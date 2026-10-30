@@ -91,14 +91,17 @@ command -v go >/dev/null 2>&1 || die "未检测到 Go（项目需要 Go 1.26 或
 
 ARTEX_GOSUMDB="${ARTEX_GOSUMDB:-sum.golang.org}"
 if [ -z "${ARTEX_BUILD_VERSION:-}" ]; then
-  if command -v git >/dev/null 2>&1 && git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    ARTEX_BUILD_VERSION="$(git describe --tags --always --dirty)"
-  else
-    ARTEX_BUILD_VERSION="dev"
-  fi
+  ARTEX_BUILD_VERSION="$(cat VERSION)"
 fi
+ARTEX_BUILD_REVISION="${ARTEX_BUILD_REVISION:-$(git rev-parse HEAD 2>/dev/null || true)}"
 # Release tags are commonly passed as v0.3.3; keep the binary version consistent.
 ARTEX_BUILD_VERSION="${ARTEX_BUILD_VERSION#v}"
+case "$ARTEX_BUILD_VERSION" in
+  ""|*[!A-Za-z0-9.+_-]*) die "版本标识只能包含字母、数字、点、加号、下划线或短横线" ;;
+esac
+case "$ARTEX_BUILD_REVISION" in
+  *[!A-Fa-f0-9]*) die "版本 revision 必须为 Git 十六进制哈希" ;;
+esac
 ARTEX_OUTPUT_DIR="${ARTEX_OUTPUT_DIR:-dist}"
 ARTEX_PACKAGE_DIR="${ARTEX_PACKAGE_DIR:-$ARTEX_OUTPUT_DIR}"
 ARTEX_UPX_ARGS="${ARTEX_UPX_ARGS:---best --lzma}"
@@ -184,6 +187,8 @@ package_binary() {
   cp -R skills "$package_root/"
   cp config.example.json "$package_root/"
   if [ -f README.md ]; then cp README.md "$package_root/"; fi
+  cp LICENSE "$package_root/"
+  if [ -f KNOWLEDGE.md ]; then cp KNOWLEDGE.md "$package_root/"; fi
   (cd "$ARTEX_PACKAGE_DIR" && zip -q -r -9 "$(basename "$archive")" "$(basename "$package_root")")
   rm -rf "$package_root"
   ok "Release 压缩包：$archive"
@@ -219,7 +224,7 @@ build_target() {
   go build \
     -tags embedui \
     -trimpath \
-    -ldflags "-s -w -buildid= -X main.version=${ARTEX_BUILD_VERSION}" \
+    -ldflags "-s -w -buildid= -X main.version=${ARTEX_BUILD_VERSION} -X main.revision=${ARTEX_BUILD_REVISION}" \
     -o "$output" \
     ./cmd/artex
 

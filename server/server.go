@@ -20,10 +20,12 @@ import (
 	"time"
 
 	"github.com/Autumn-27/artex/agent"
+	"github.com/Autumn-27/artex/buildinfo"
 	"github.com/Autumn-27/artex/db"
 	"github.com/Autumn-27/artex/intercept"
 	"github.com/Autumn-27/artex/llmpool"
 	"github.com/Autumn-27/artex/llmrec"
+	"github.com/Autumn-27/artex/pocsearch"
 	"github.com/Autumn-27/artex/report"
 	"github.com/Autumn-27/artex/resourceguard"
 	"github.com/Autumn-27/artex/session"
@@ -39,14 +41,18 @@ import (
 // startup (which in turn gets it from -ldflags "-X main.version=<tag>").
 // Defaults to "dev" for local builds. Exposed to the frontend via GET /api/health.
 var BuildVersion = "dev"
+var BuildMetadata = buildinfo.New(buildinfo.Version, "")
 
 // Server exposes the ARTEX backend over a JSON HTTP API for the shadcn/ui
 // frontend.
 type Server struct {
-	resources *resourceguard.Guard
-	m         *Manager
-	engine    *Engine
-	ctx       context.Context
+	promptEvalMu         sync.Mutex
+	resources            *resourceguard.Guard
+	resourceProtectionMu sync.Mutex // orders durable toggle writes and live application
+	knowledgeClient      *pocsearch.Client
+	m                    *Manager
+	engine               *Engine
+	ctx                  context.Context
 
 	skillDir  string              // root directory for skill subdirectories
 	jwtKey    []byte              // HS256 signing key loaded from / generated into dataDir/jwt.key
@@ -237,6 +243,8 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 		wireAgentAugment(m.pg, s.skillDir, s.hostTools) // 可见 skills/MCP + 流量/编排 host 工具装配进 agent 工具集
 		domainReg := buildDomainReg(m.Assets())
 		wireTools(m.pg, domainReg) // 内置工具表：按 agent 过滤 + 覆盖描述/schema + 注入默认值
+		s.seedHTTPMeasurementTools()
+		s.initKnowledge()
 		seedPrompts(m.pg)          // 内置 agent 默认提示词正文播种进 agent_prompts(仅空时)
 		s.seedOrchestrationTools() // P2 跨任务编排工具 seed 进 tools 表(可按 agent 绑定)
 		s.seedStageShareTool()     // F13 受管文件投递工具 seed 进 tools 表(默认绑 worker)
@@ -365,7 +373,7 @@ func (s *Server) loadLLMConfig() (agent.Config, bool) {
 	cfg.Stream = p.Streaming
 	cfg.MaxTokens, cfg.MaxTokensField = p.MaxTokens, p.MaxTokensField
 	cfg.SessionHeaderKey = p.SessionHeaderKey
-	s.applyProfileRetry(&cfg, p)
+	s.applyProfileOverrides(&cfg, p)
 	if cfg.APIKey == "" {
 		return cfg, false
 	}
@@ -490,7 +498,7 @@ func (s *Server) applyLLM(cfg agent.Config) error {
 		s.cfgMu.Lock()
 		profName := s.llmProf
 		s.cfgMu.Unlock()
-		prov = llmrec.Wrap(prov, s.m.PG(), cfg.Model, profName, cfg.ThinkingType, cfg.ReasoningEffort, s.m.LLMRecordEnabled)
+		prov = llmrec.Wrap(prov, s.m.PG(), cfg.Model, profName, cfg.ThinkingType, cfg.ReasoningEffort, s.m.LLMRecordEnabled).WithModelPrompt(cfg.ModelPrompt)
 		prov = bindSideProvider(prov, cfg, 0, profName)
 	}
 	s.cfgMu.Lock()
@@ -553,7 +561,7 @@ func (s *Server) loadProfileConfig(id int64) (agent.Config, bool) {
 	cfg.Stream = p.Streaming
 	cfg.MaxTokens, cfg.MaxTokensField = p.MaxTokens, p.MaxTokensField
 	cfg.SessionHeaderKey = p.SessionHeaderKey
-	s.applyProfileRetry(&cfg, p)
+	s.applyProfileOverrides(&cfg, p)
 	if cfg.APIKey == "" {
 		return cfg, false
 	}
@@ -627,7 +635,7 @@ func (s *Server) providerForProfile(id int64) (llm.Provider, agent.Config, bool)
 	}
 	// Wrap with recorder, tagged with this profile's name.
 	if p, _ := s.m.pg.ProfileByID(id); p != nil {
-		prov = llmrec.Wrap(prov, s.m.PG(), cfg.Model, p.Name, cfg.ThinkingType, cfg.ReasoningEffort, s.m.LLMRecordEnabled)
+		prov = llmrec.Wrap(prov, s.m.PG(), cfg.Model, p.Name, cfg.ThinkingType, cfg.ReasoningEffort, s.m.LLMRecordEnabled).WithModelPrompt(cfg.ModelPrompt)
 		prov = bindSideProvider(prov, cfg, id, p.Name)
 	}
 	s.provCacheMu.Lock()
@@ -715,6 +723,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/health", s.health)
 	mux.HandleFunc("GET /api/stats", s.stats)
 	mux.HandleFunc("GET /api/resources", s.resourceStatus)
+	mux.HandleFunc("PUT /api/resources/protection", s.setResourceProtection)
+	mux.HandleFunc("GET /api/knowledge", s.knowledgeList)
+	mux.HandleFunc("GET /api/knowledge/{id}", s.knowledgeDetail)
+	mux.HandleFunc("POST /api/knowledge", s.knowledgeSave)
+	mux.HandleFunc("POST /api/knowledge/public-search", s.knowledgePublicSearch)
 	mux.HandleFunc("GET /api/logs", s.getLogs)
 	mux.HandleFunc("GET /api/logs/history", s.getLogsHistory)
 	mux.HandleFunc("GET /api/logs/stream", s.streamLogs)
@@ -956,6 +969,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/visibility/skill/toggle", s.pgToggleSkillVisibility)
 	// LLM 多 profile
 	mux.HandleFunc("GET /api/llm/profiles", s.pgListProfiles)
+	mux.HandleFunc("POST /api/llm/prompt/preview", s.modelPromptPreview)
+	mux.HandleFunc("POST /api/llm/profiles/{id}/prompt-eval", s.modelPromptEvaluate)
+	mux.HandleFunc("GET /api/llm/profiles/{id}/prompt-eval", s.modelPromptLastEvaluation)
 	mux.HandleFunc("POST /api/llm/profiles", s.pgSaveProfile)
 	mux.HandleFunc("DELETE /api/llm/profiles/{id}", s.pgDeleteProfile)
 	mux.HandleFunc("POST /api/llm/profiles/active", s.pgActivateProfile)
@@ -1056,7 +1072,7 @@ func (s *Server) SetGate(g *Gate) {
 // --- handlers ---
 
 func (s *Server) health(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{"ok": true, "service": "artex", "version": BuildVersion})
+	writeJSON(w, 200, map[string]any{"ok": true, "service": "artex", "version": BuildVersion, "display_version": BuildMetadata.Display, "edition": BuildMetadata.Edition, "revision": BuildMetadata.Revision, "dirty": BuildMetadata.Dirty})
 }
 
 func (s *Server) stats(w http.ResponseWriter, r *http.Request) {
