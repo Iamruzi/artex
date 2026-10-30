@@ -1,6 +1,6 @@
 # 仓库与版本管理
 
-`main` 维护二开集成版；官方版本用带说明的 tag 固定原始提交，不额外建立无人维护的版本分支。只有将来需要分别回补修复时，才从相应 tag 建立维护分支。
+`Iamruzi/artex` 的默认分支 `codex/byte2cat-integration` 维护二开集成版；已有原版 `main` 保留。旧 `artex-0312` 仓库保留其历史，不强推替换。官方版本用带说明的 tag 固定原始提交；只有将来需要分别回补修复时，才从相应 tag 建立维护分支。
 
 ## 官方快照
 
@@ -21,7 +21,7 @@ git switch --detach upstream/v0.3.12
 # 或查看 0315
 git switch --detach upstream/v0.3.15
 # 回到二开版
-git switch main
+git switch codex/byte2cat-integration
 ```
 
 切换前应提交或暂存本地修改。若要同时查看多个版本，可从标签创建独立工作区：
@@ -31,7 +31,7 @@ git worktree add --detach ../artex-official-0312 upstream/v0.3.12
 git worktree add --detach ../artex-official-0315 upstream/v0.3.15
 ```
 
-对比源码：`git diff upstream/v0.3.12 upstream/v0.3.15`；对比二开：`git diff upstream/v0.3.15 main`。
+对比源码：`git diff upstream/v0.3.12 upstream/v0.3.15`；对比二开：`git diff upstream/v0.3.15 codex/byte2cat-integration`。
 
 ## 目录约定
 

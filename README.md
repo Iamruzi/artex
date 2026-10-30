@@ -2,7 +2,7 @@
 
 AI 自主渗透测试系统 · 二开版（Go 后端 + Next.js 前端 + PostgreSQL)
 
-Byte2Cat 质量整合版，独立版本从 `0.1.0` 开始。页面和启动日志显示 `Byte2Cat v版本 · Git短哈希`；未提交构建会附加 `-dirty`。仓库沿用 ARTEX 的上游历史和 AGPL-3.0 许可证。
+Byte2Cat 质量整合版，独立版本从 `0.1.0` 开始。页面和启动日志显示 `Byte2Cat v版本 · Git短哈希`；可读取 Git 构建元数据时，未提交构建附加 `-dirty`。没有 revision 元数据的源码包显示 unknown。仓库沿用 ARTEX 的上游历史和 AGPL-3.0 许可证。
 
 本次发布的改动、完整回归与实际验收边界见 [0.1.0 复核记录](RELEASE-REVIEW-2026-10-30.md)。
 
@@ -228,7 +228,7 @@ ARTEX 是一套 **LLM 多 agent 驱动的自主渗透系统**:Go 单体后端（
 
 ## 文档索引
 
-官方原版通过 `upstream/v0.3.12`、`upstream/v0.3.15` 标签保存，`main` 维护二开集成版。版本来源、切换方法与目录约定见 [仓库与版本管理](docs/REPOSITORY.md)。
+官方快照通过 `upstream/v0.3.12`、`upstream/v0.3.15` 标签保存，默认分支 `codex/byte2cat-integration` 维护二开集成版，原版 `main` 保留。版本来源、切换方法与目录约定见 [仓库与版本管理](docs/REPOSITORY.md)。
 
 | 文档 | 内容 |
 | --- | --- |

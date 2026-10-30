@@ -2,6 +2,8 @@
 
 仓库与应用名称保持 **artex / ARTEX**，维护账号为 Iamruzi。Byte2Cat 仅为整合版本标识。保留 upstream 快照、既有二开历史、原许可证和署名，不将集成版称作官方 0.3.15。
 
+账号已有同名 ARTEX 原版 fork；GitHub 不区分大小写，无法再把 artex-0312 直接改成 artex。采用不覆盖历史的同步方式：整合版位于 `Iamruzi/artex` 的 `codex/byte2cat-integration` 默认分支；原版 `main` 和旧 `artex-0312` 仓库保留。没有用未经完整合并的 upstream 代码替换本轮已验收源码，也没有强推 main。
+
 ## 本批改进
 
 - 启动日志、健康接口、页面顶栏显示 `Byte2Cat v0.1.0 · Git短哈希`，完整 revision 另保留；工作区有改动时带 dirty，不伪装正式提交。VERSION 与默认版本的一致性有测试。
