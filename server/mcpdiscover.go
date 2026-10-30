@@ -20,6 +20,25 @@ type mcpClient interface {
 	Close() error
 }
 
+const mcpSetupTimeout = 30 * time.Second
+
+// Bound connection initialization and the complete tool listing together. The
+// successful client outlives this short setup context until the run's cleanup.
+func connectAndListMCP(ctx context.Context, m *db.MCPServer) (mcpClient, []actool.CoreTool, error) {
+	ctx, cancel := context.WithTimeout(ctx, mcpSetupTimeout)
+	defer cancel()
+	cl, err := connectMCP(ctx, m)
+	if err != nil {
+		return nil, nil, err
+	}
+	tools, err := cl.Tools(ctx)
+	if err != nil {
+		_ = cl.Close()
+		return nil, nil, err
+	}
+	return cl, tools, nil
+}
+
 // connectMCP dials one MCP server per its transport. Callers must Close the client.
 func connectMCP(ctx context.Context, m *db.MCPServer) (mcpClient, error) {
 	switch m.Transport {
@@ -47,15 +66,11 @@ func connectMCP(ctx context.Context, m *db.MCPServer) (mcpClient, error) {
 // discoverAndCacheMCP connects to one MCP, lists its tools, and persists the tool
 // names to mcp_tools_cache so the UI shows them without a live connection.
 func (s *Server) discoverAndCacheMCP(ctx context.Context, m *db.MCPServer) error {
-	cl, err := connectMCP(ctx, m)
+	cl, ts, err := connectAndListMCP(ctx, m)
 	if err != nil {
 		return err
 	}
 	defer cl.Close()
-	ts, err := cl.Tools(ctx)
-	if err != nil {
-		return err
-	}
 	tools := make([]db.MCPTool, 0, len(ts))
 	for _, t := range ts {
 		tools = append(tools, db.MCPTool{Name: t.Name(), Description: t.Description()})

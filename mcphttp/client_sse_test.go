@@ -93,14 +93,16 @@ func TestLegacySSEClientDiscoverAndCall(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer c.Close()
-	tools, err := c.Tools(ctx)
+	// Setup cancellation must not tear down a successfully established stream.
+	cancel()
+	tools, err := c.Tools(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(tools) != 1 || !strings.Contains(tools[0].Name(), "echo") {
 		t.Fatalf("unexpected tools: %#v", tools)
 	}
-	got, err := c.Call(ctx, "echo", map[string]any{"value": "x"})
+	got, err := c.Call(t.Context(), "echo", map[string]any{"value": "x"})
 	if err != nil || got != "ok" {
 		t.Fatalf("Call() = %q, %v", got, err)
 	}

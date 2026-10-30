@@ -80,7 +80,14 @@ func wireAgentAugment(pg *db.DB, skillDir string, hostTools func() ([]actool.Cor
 			mcpIDs, _ := pg.AgentVisible(a.ID, "mcp")
 			want := idSet(mcpIDs)
 			all, _ := pg.ListMCP()
+			// Cap the whole batch as well as each service, so many unavailable
+			// endpoints cannot multiply setup latency by the server count.
+			setupCtx, setupCancel := context.WithTimeout(ctx, mcpSetupTimeout)
+			defer setupCancel()
 			for _, m := range all {
+				if setupCtx.Err() != nil {
+					break
+				}
 				if !m.Enabled {
 					continue
 				}
@@ -89,17 +96,12 @@ func wireAgentAugment(pg *db.DB, skillDir string, hostTools func() ([]actool.Cor
 				if !directVisible && !skillGated {
 					continue // neither directly visible nor referenced by a visible skill
 				}
-				cl, err := connectMCP(ctx, m)
+				cl, ts, err := connectAndListMCP(setupCtx, m)
 				if err != nil {
-					log.Printf("[mcp] %s 连接失败: %v", m.Name, err)
+					log.Printf("[mcp] %s 连接或工具发现失败: %v", m.Name, err)
 					continue
 				}
 				closers = append(closers, cl)
-				ts, err := cl.Tools(ctx)
-				if err != nil {
-					log.Printf("[mcp] %s tools/list 失败: %v", m.Name, err)
-					continue
-				}
 				for _, t := range ts {
 					t = mcpGate.Wrap(mcpIsolationKey(m), t)
 					extra = append(extra, t)

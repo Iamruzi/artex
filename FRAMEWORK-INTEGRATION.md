@@ -34,6 +34,8 @@
 
 配置在 `config.json` 的 `mcp_guard`，字段见 `config.example.json`；省略时使用上述默认值，`disabled:true` 关闭本层。并发最多 16、等待最多 30 秒、阈值最多 20、冷却最多一小时；非正值使用默认值。修改后重启生效。没有新增运行依赖或数据库迁移；安装升级继续使用 ARTEX 原编译、部署与 `artex doctor` 路径。
 
+后续 MCP 可靠性批次已补 HTTP/SSE 初始化取消、装配期限、失败清理、完整有界分页和结构化结果保留，见 [MCP-RELIABILITY.md](MCP-RELIABILITY.md)。这没有扩大上述调用熔断覆盖范围，也没有替换 stdio SDK。
+
 ## 后续实施顺序与验收
 
 ### 本轮先修现有收尾路径

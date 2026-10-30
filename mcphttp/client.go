@@ -35,6 +35,9 @@ const legacySSEProtocolVersion = "2024-11-05"
 // Bound transport allocation before Capture applies the model-facing limit.
 const maxResponseBytes = 8 << 20
 
+const setupTimeout = 30 * time.Second
+const closeTimeout = 2 * time.Second
+
 // ToolName mirrors mcp.ToolName so remote tools share the mcp__server__tool scheme.
 func ToolName(server, name string) string { return "mcp__" + server + "__" + name }
 
@@ -77,11 +80,12 @@ type Client struct {
 	streamBody   io.ReadCloser
 	streamCancel context.CancelFunc
 	streamDone   chan struct{}
-	legacyMu     sync.Mutex
+	legacyGate   chan struct{}
 	pendingMu    sync.Mutex
 	pending      map[int]chan *rpcResponse
 	streamErr    chan error
 	protocol     string
+	closeOnce    sync.Once
 }
 
 func normalizeHeaders(headers map[string]string) (map[string]string, error) {
@@ -101,6 +105,8 @@ func normalizeHeaders(headers map[string]string) (map[string]string, error) {
 // When insecure is true, TLS certificate verification is skipped so servers that
 // present a self-signed certificate can still be reached (issue #108).
 func New(ctx context.Context, server, url string, headers map[string]string, insecure bool) (*Client, error) {
+	ctx, cancel := context.WithTimeout(ctx, setupTimeout)
+	defer cancel()
 	cleanHeaders, err := normalizeHeaders(headers)
 	if err != nil {
 		return nil, err
@@ -117,6 +123,7 @@ func New(ctx context.Context, server, url string, headers map[string]string, ins
 		protocol: protocolVersion,
 	}
 	if err := c.initialize(ctx); err != nil {
+		_ = c.Close()
 		return nil, err
 	}
 	return c, nil
@@ -126,6 +133,11 @@ func New(ctx context.Context, server, url string, headers map[string]string, ins
 // announces a per-session POST /message endpoint, while JSON-RPC responses are
 // delivered asynchronously as SSE message events.
 func NewSSE(ctx context.Context, server, sseURL string, headers map[string]string, insecure bool) (*Client, error) {
+	setupCtx, setupCancel := context.WithTimeout(ctx, setupTimeout)
+	defer setupCancel()
+	if err := setupCtx.Err(); err != nil {
+		return nil, err
+	}
 	cleanHeaders, err := normalizeHeaders(headers)
 	if err != nil {
 		return nil, err
@@ -134,7 +146,11 @@ func NewSSE(ctx context.Context, server, sseURL string, headers map[string]strin
 	if insecure {
 		hc.Transport = &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
 	}
-	streamCtx, cancel := context.WithCancel(context.Background())
+	// A short discovery/setup context must cancel a stalled handshake, but must
+	// not kill a successfully established long-lived stream when setup returns.
+	streamCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	stopSetupCancel := context.AfterFunc(setupCtx, cancel)
+	defer stopSetupCancel()
 	req, err := http.NewRequestWithContext(streamCtx, http.MethodGet, sseURL, nil)
 	if err != nil {
 		cancel()
@@ -147,6 +163,9 @@ func NewSSE(ctx context.Context, server, sseURL string, headers map[string]strin
 	resp, err := hc.Do(req)
 	if err != nil {
 		cancel()
+		if setupCtx.Err() != nil {
+			return nil, setupCtx.Err()
+		}
 		return nil, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
@@ -159,6 +178,9 @@ func NewSSE(ctx context.Context, server, sseURL string, headers map[string]strin
 	if err != nil {
 		resp.Body.Close()
 		cancel()
+		if setupCtx.Err() != nil {
+			return nil, setupCtx.Err()
+		}
 		return nil, err
 	}
 	c := &Client{
@@ -173,12 +195,19 @@ func NewSSE(ctx context.Context, server, sseURL string, headers map[string]strin
 		streamDone:   make(chan struct{}),
 		pending:      make(map[int]chan *rpcResponse),
 		streamErr:    make(chan error, 1),
+		legacyGate:   make(chan struct{}, 1),
 		protocol:     legacySSEProtocolVersion,
 	}
 	go c.readLegacySSE(reader)
-	if err := c.initialize(ctx); err != nil {
+	if err := c.initialize(setupCtx); err != nil {
 		_ = c.Close()
 		return nil, err
+	}
+	// If cancellation has already started, the stream cannot be returned as a
+	// healthy connection. Close also waits for its reader to exit.
+	if !stopSetupCancel() || setupCtx.Err() != nil {
+		_ = c.Close()
+		return nil, setupCtx.Err()
 	}
 	return c, nil
 }
@@ -260,21 +289,55 @@ func (c *Client) initialize(ctx context.Context) error {
 
 // Tools lists the server's tools and adapts them to CoreTools.
 func (c *Client) Tools(ctx context.Context) ([]actool.CoreTool, error) {
-	raw, err := c.call(ctx, "tools/list", map[string]any{})
-	if err != nil {
-		return nil, err
+	ctx, cancel := context.WithTimeout(ctx, setupTimeout)
+	defer cancel()
+	const maxPages, maxTools, maxCursorBytes = 64, 2048, 16 * 1024
+	var out []actool.CoreTool
+	seenCursors, seenNames := map[string]bool{}, map[string]bool{}
+	cursor, totalBytes := "", 0
+	for page := 0; page < maxPages; page++ {
+		params := map[string]any{}
+		if cursor != "" {
+			params["cursor"] = cursor
+		}
+		raw, err := c.call(ctx, "tools/list", params)
+		if err != nil {
+			return nil, err
+		}
+		totalBytes += len(raw)
+		if totalBytes > maxResponseBytes {
+			return nil, fmt.Errorf("mcp: tools/list exceeds total discovery byte limit")
+		}
+		var res struct {
+			Tools      []remoteTool `json:"tools"`
+			NextCursor string       `json:"nextCursor"`
+		}
+		if err := json.Unmarshal(raw, &res); err != nil {
+			return nil, fmt.Errorf("mcp: decode tools/list: %w", err)
+		}
+		if res.Tools == nil {
+			return nil, fmt.Errorf("mcp: tools/list is missing its tools array")
+		}
+		if len(out)+len(res.Tools) > maxTools {
+			return nil, fmt.Errorf("mcp: tools/list exceeds %d tools", maxTools)
+		}
+		for _, rt := range res.Tools {
+			if strings.TrimSpace(rt.Name) == "" || seenNames[rt.Name] {
+				return nil, fmt.Errorf("mcp: tools/list contains an empty or duplicate name")
+			}
+			seenNames[rt.Name] = true
+			out = append(out, c.wrap(rt))
+		}
+		if res.NextCursor == "" {
+			return out, nil
+		}
+		if len(res.NextCursor) > maxCursorBytes || seenCursors[res.NextCursor] {
+			return nil, fmt.Errorf("mcp: tools/list has an oversized or repeated cursor")
+		}
+		seenCursors[res.NextCursor] = true
+		cursor = res.NextCursor
 	}
-	var res struct {
-		Tools []remoteTool `json:"tools"`
-	}
-	if err := json.Unmarshal(raw, &res); err != nil {
-		return nil, err
-	}
-	out := make([]actool.CoreTool, 0, len(res.Tools))
-	for _, rt := range res.Tools {
-		out = append(out, c.wrap(rt))
-	}
-	return out, nil
+	return nil, fmt.Errorf("mcp: tools/list exceeds %d pages", maxPages)
 }
 
 type remoteTool struct {
@@ -299,36 +362,29 @@ func (c *Client) wrap(rt remoteTool) actool.CoreTool {
 		Run: func(ctx context.Context, in json.RawMessage, tc *actool.ToolContext) (actool.Result, error) {
 			var args any
 			if len(in) > 0 {
-				_ = json.Unmarshal(in, &args)
+				if err := json.Unmarshal(in, &args); err != nil {
+					return actool.Errorf("Error: invalid MCP arguments: " + err.Error()), nil
+				}
 			}
 			raw, err := c.call(ctx, "tools/call", map[string]any{"name": rt.Name, "arguments": args})
 			if err != nil {
 				return actool.Errorf("Error: " + err.Error()), nil
 			}
-			var res struct {
-				Content []struct {
-					Type string `json:"type"`
-					Text string `json:"text"`
-				} `json:"content"`
-				IsError bool `json:"isError"`
-			}
-			if err := json.Unmarshal(raw, &res); err != nil {
+			result, err := decodeToolResult(raw)
+			if err != nil {
 				mcpguard.NoteTransportFailure(ctx)
 				return actool.Errorf("Error: bad MCP response: " + err.Error()), nil
-			}
-			var text strings.Builder
-			for _, blk := range res.Content {
-				text.WriteString(blk.Text)
 			}
 			// 与内置/自定义工具一致：超长输出走 Capture——按会话 MaxOutputChars（默认
 			// 30000）截断，配了 ToolOutputDir 时全量溢写到磁盘只留 head + 指针，避免大
 			// MCP 结果整段灌爆上下文。
-			return actool.Result{Content: []llm.ContentBlock{llm.TextBlock(actool.Capture(tc, text.String()))}, IsError: res.IsError}, nil
+			return actool.Result{Content: []llm.ContentBlock{llm.TextBlock(actool.Capture(tc, result.Text))}, IsError: result.IsError}, nil
 		},
 	})
 }
 
-// Call invokes one tool and returns the concatenated text of its content blocks
+// Call invokes one tool and prefers structured content for backend JSON consumers.
+// Text-only results retain the original concatenation behavior.
 // (ScopeSentry answers with a single JSON text block). Unlike the CoreTool wrapper
 // from Tools(), this bypasses the agent permission (AskUser) layer — it is meant
 // for backend batch jobs (e.g. asset sync) that call MCP tools programmatically.
@@ -337,29 +393,28 @@ func (c *Client) Call(ctx context.Context, tool string, args any) (string, error
 	if err != nil {
 		return "", err
 	}
-	var res struct {
-		Content []struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
-		} `json:"content"`
-		IsError bool `json:"isError"`
-	}
-	if err := json.Unmarshal(raw, &res); err != nil {
+	result, err := decodeToolResult(raw)
+	if err != nil {
 		return "", fmt.Errorf("bad MCP response: %w", err)
 	}
-	var text strings.Builder
-	for _, blk := range res.Content {
-		text.WriteString(blk.Text)
+	text := result.Text
+	if len(result.Structured) > 0 {
+		text = string(result.Structured)
 	}
-	if res.IsError {
-		return text.String(), fmt.Errorf("mcp tool %q error: %s", tool, text.String())
+	if result.IsError {
+		return text, fmt.Errorf("mcp tool %q error: %s", tool, text)
 	}
-	return text.String(), nil
+	return text, nil
 }
 
 // Close terminates the MCP session best-effort (DELETE with the session id, per the
 // Streamable HTTP spec). Servers that don't track sessions simply ignore it.
 func (c *Client) Close() error {
+	c.closeOnce.Do(c.close)
+	return nil
+}
+
+func (c *Client) close() {
 	if c.legacySSE {
 		if c.streamCancel != nil {
 			c.streamCancel()
@@ -371,17 +426,19 @@ func (c *Client) Close() error {
 		case <-c.streamDone:
 		case <-time.After(time.Second):
 		}
-		return nil
+		return
 	}
 	c.mu.Lock()
 	sid := c.sessionID
 	c.mu.Unlock()
 	if sid == "" {
-		return nil
+		return
 	}
-	req, err := http.NewRequest(http.MethodDelete, c.url, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), closeTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, c.url, nil)
 	if err != nil {
-		return nil
+		return
 	}
 	req.Header.Set("Mcp-Session-Id", sid)
 	for k, v := range c.headers {
@@ -390,12 +447,15 @@ func (c *Client) Close() error {
 	if resp, err := c.http.Do(req); err == nil {
 		resp.Body.Close()
 	}
-	return nil
 }
 
 // --- JSON-RPC over Streamable HTTP ---
 
 func (c *Client) call(ctx context.Context, method string, params any) (json.RawMessage, error) {
+	// Legacy SSE has a long-lived HTTP connection, but individual RPCs still
+	// need a finite deadline. A shorter task/caller deadline always takes priority.
+	ctx, cancel := context.WithTimeout(ctx, 120*time.Second)
+	defer cancel()
 	c.mu.Lock()
 	c.nextID++
 	id := c.nextID
@@ -500,8 +560,12 @@ func (c *Client) roundTrip(ctx context.Context, body rpcRequest, expectResp bool
 func (c *Client) legacyRoundTrip(ctx context.Context, body rpcRequest, expectResp bool) (*rpcResponse, error) {
 	// Serializing calls keeps the first implementation deterministic while the
 	// shared SSE reader still handles asynchronous delivery.
-	c.legacyMu.Lock()
-	defer c.legacyMu.Unlock()
+	select {
+	case c.legacyGate <- struct{}{}:
+		defer func() { <-c.legacyGate }()
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 
 	data, err := json.Marshal(body)
 	if err != nil {
