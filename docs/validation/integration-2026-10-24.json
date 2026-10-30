@@ -34,7 +34,7 @@
     "static_build": "passed",
     "go_vet": "passed",
     "embedded_go_build": "passed",
-    "full_suite": "not fully passed; see INTEGRATION.md",
-    "visual_acceptance": "not completed; see INTEGRATION.md"
+    "full_suite": "not fully passed; see ../../INTEGRATION.md",
+    "visual_acceptance": "not completed; see ../../INTEGRATION.md"
   }
 }

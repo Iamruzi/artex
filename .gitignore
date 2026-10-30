@@ -24,8 +24,11 @@ web/next-env.d.ts
 *.swp
 *.swo
 
-# docs
-/docs/
+# Local drafts and agent implementation plans; published docs are tracked.
+/docs/local/
+/docs/drafts/
+/docs/plans/
+/.local/
 
 # os
 .DS_Store
@@ -59,3 +62,41 @@ Thumbs.db
 /Dockerfile.bench
 /Dockerfile.bench.v2
 FUTURE.md
+
+# Dependencies and generated output in nested skills as well as the web app.
+node_modules/
+.next/
+*.tsbuildinfo
+/web/out/
+/web/build/
+/.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+coverage/
+.coverage
+/coverage.out
+
+# Runtime output, local credentials and Windows builds.
+/transcripts/
+/logs/
+/tmp/
+/temp/
+.env.*
+!.env.example
+*.log
+*.tmp
+*.bak
+*.orig
+*.rej
+/artex.exe
+/artex.exe.*
+/artex.test
+/artex.test.exe
+
+# Strobes creates per-target evidence and reports next to its scripts.
+/skills/web-pentest-strobes/skill/scripts/evidence/*
+!/skills/web-pentest-strobes/skill/scripts/evidence/.gitkeep
+/skills/web-pentest-strobes/skill/scripts/reports/*
+!/skills/web-pentest-strobes/skill/scripts/reports/.gitkeep

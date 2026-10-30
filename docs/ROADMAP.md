@@ -1,7 +1,7 @@
 # ARTEX 需求总纲与实施路线图(ROADMAP)
 
 > 日期:2026-09-13。本文汇总 2026-09-12~13 全部讨论成果,是五份专题文档的索引与实施总纲。
-> 专题文档:`AUDIT-REPORT.md`(审核)、`FIXPLAN-AND-EVALUATION.md`(修复方案 F1-F14 + 需求一/二评估)、`CHAINS-INTEGRATION-DESIGN.md`(反问思维链四层架构)、`PIVOTHUB-AUDIT-AND-FUSION-EVALUATION.md`(PivotHub 审核与融合评估)、`INTRANET-PIVOT-DESIGN.md`(内网渗透能力设计)。
+> 专题文档:`AUDIT-REPORT.md`(审核)、`FIXPLAN-AND-EVALUATION.md`(修复方案 F1-F14 + 需求一/二评估)、`design/CHAINS-INTEGRATION-DESIGN.md`(反问思维链四层架构)、`PIVOTHUB-AUDIT-AND-FUSION-EVALUATION.md`(PivotHub 审核与融合评估)、`design/INTRANET-PIVOT-DESIGN.md`(内网渗透能力设计)。
 
 ## 1. 需求清单与可实现性总评
 
@@ -91,7 +91,7 @@ F14 伪装门控(1-2 天);F13 若不并入期 1 可独立提前(2-3 天);vshell 
 
 | # | 冲突 | 解法 |
 |---|---|---|
-| C1 | F13 进程组收割 × 隧道/反弹监听需长命:一刀切收割会杀掉 agent 正经建的隧道 | 立规矩:长寿资源禁止裸 Bash 起,必须走受管工具(`tunnel_deploy`/`reverse_listen`)注册台账豁免收割;guard 规则引导。**2026-09-13 缓解**:立足点策略定为 webshell-first(`INTRANET-PIVOT-DESIGN.md` 4.2),反弹监听降级为临时 TTL 通道,session 层从本冲突摘出,C1 仅剩隧道这一本质长命资源 |
+| C1 | F13 进程组收割 × 隧道/反弹监听需长命:一刀切收割会杀掉 agent 正经建的隧道 | 立规矩:长寿资源禁止裸 Bash 起,必须走受管工具(`tunnel_deploy`/`reverse_listen`)注册台账豁免收割;guard 规则引导。**2026-09-13 缓解**:立足点策略定为 webshell-first(`design/INTRANET-PIVOT-DESIGN.md` 4.2),反弹监听降级为临时 TTL 通道,session 层从本冲突摘出,C1 仅剩隧道这一本质长命资源 |
 | C2 | 合并 × 验证:delta 合并进已 confirmed 的 finding,新证据搭"已验证"便车 | 每次合并触发对该 delta 的增量重验(复用 finding_checks 管线) |
 | C3 | 按任务绑隧道 × MITM 单实例单上游(`traffic/traffic.go:158-186`):MITM 分不清连接属于哪个任务 | 每任务独立 MITM 监听端口(各有上游);**go-mitmproxy 多实例可行性未验证**,退路:按代理认证用户分流上游 |
 | C4 | pending 占位节点 × planner 语义:planner 会把未验证 finding 当"已突破" | 硬性规则:pending 节点不计入 prove_goal、但参与意图去重;写进 planner 工具与提示词 |

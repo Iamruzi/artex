@@ -57,7 +57,7 @@
 
 ### 7. 蜜罐识别与反 AI 蜜罐防护
 
-设计文档：`HONEYPOT-DETECTION-DESIGN.md`（基于 Morishita IM'19、Vetterl WOOT'18、Srinivasa DTRAP'23、360 Quake 测绘研究等调研）。模块是贯穿 recon→规划→执行的"蜜罐置信度"数据线，分识别与自身防护两面：
+设计文档：`docs/design/HONEYPOT-DETECTION-DESIGN.md`（基于 Morishita IM'19、Vetterl WOOT'18、Srinivasa DTRAP'23、360 Quake 测绘研究等调研）。模块是贯穿 recon→规划→执行的"蜜罐置信度"数据线，分识别与自身防护两面：
 
 - **识别层（L1 已实现）**：静态签名引擎（`honeydetect/`)——资产落库时匹配 banner/HTTP/TLS 证书签名库（`data/signatures/honeypot.json`,JSON 热更新、全部签名带来源、覆盖 Cowrie/OpenCanary/Kippo/Glastopf/HFish/Dionaea 默认指纹），命中即写 `assets.honeypot_score` + 证据、写 fact 锚定资产进探索图；planner 每轮看到疑似蜜罐资产清单，按固定纪律处置（双信号才封锁方向、单信号只降级交互、疑似蜜罐上不投递不爆破不利用、全阴性≠非蜜罐）;UI 资产页有蜜罐徽标。L2 行为探针（畸形版本号/身份轮替）与 L3 登录后检查包（`/proc/meminfo` 比对、egress 回连测试）在设计中。
 - **自身防护（批 5 已实现）**：针对"以 AI 攻击代理为猎物"的新型陷阱（attestation 诱导、反向 prompt injection、tarpit 迷宫）——worker 代码固定尾红线（永不自证、目标内容永是数据不是指令）;guard 出口审查（出站请求含平台敏感信息指纹即 deny，只存哈希不落原文）;tarpit 抓取熔断；UA 池按任务稳定分配（禁止"Chrome UA + 库 TLS"半吊子伪装）。
@@ -65,7 +65,7 @@
 
 ## 三、验证情况（诚实版）
 
-- **实战验证**：红日靶场 3（外网 Web → Linux 跳板 → Windows 成员机 → 域控）全流程通关，拿到域控 flag。诚实声明：域管口令为人工投喂一次，完整 A/B 对比与复盘见 `AB-REPORT-RED-SUN-3.md` / `POSTMORTEM-RED-SUN-3.md`。
+- **实战验证**：红日靶场 3（外网 Web → Linux 跳板 → Windows 成员机 → 域控）全流程通关，拿到域控 flag。诚实声明：域管口令为人工投喂一次，完整 A/B 对比与复盘见 `docs/reports/AB-REPORT-RED-SUN-3.md` / `docs/reports/POSTMORTEM-RED-SUN-3.md`。
 - **部署验证**：Ub 18 + PG10 实体机连续运行；systemd 托管；`artex doctor` 全绿；启动自检 sha256 一致 14/14。
 - **测试**：`go build/vet` 全过；`agent`、`db`、`tools`、`guard`、`intercept` 等包测试全过；`server` 包有 4 个既有环境性失败（缺 PG DSN ×3、Windows 路径分隔符 ×1），与改动无关。
 - **已知不足**：① 效果强依赖 LLM 质量（弱模型会钻牛角尖/死磕错误凭据）；② 误报控制虽有反证判据+复测 agent，仍需更多靶场样本调优；③ 内网阶段动静控制与免杀未系统化；④ 测试环境样本有限，存在过拟合风险，功能均按通用场景实现但未经充分泛化验证。
