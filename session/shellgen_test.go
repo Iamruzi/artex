@@ -9,9 +9,21 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
+
+// Keep a structural check even on hosts without a PHP interpreter. The full
+// rendered syntax tests below still run php -l when the interpreter is present.
+func TestPHPTemplateVariableSigils(t *testing.T) {
+	pattern := regexp.MustCompile(`\{\{\.V[A-Za-z]+\}\}`)
+	for _, location := range pattern.FindAllStringIndex(phpEncTemplate, -1) {
+		if location[0] == 0 || phpEncTemplate[location[0]-1] != '$' {
+			t.Errorf("PHP variable placeholder lacks dollar prefix: %s", phpEncTemplate[location[0]:location[1]])
+		}
+	}
+}
 
 // phpLint 对生成的 PHP 马体做 php -l 语法检查;环境无 php 时 skip。
 func phpLint(t *testing.T, content string) {
@@ -177,4 +189,3 @@ func TestGenerateShellNoProductFingerprint(t *testing.T) {
 		t.Fatal("PHP 马体未嵌入派生域分隔串")
 	}
 }
-
