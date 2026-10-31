@@ -68,7 +68,7 @@ func TestMCPAssemblySharesCircuitAcrossAgentRuns(t *testing.T) {
 	t.Cleanup(func() { agent.ToolAugment = original })
 	// Load defaults regardless of any developer machine config.
 	t.Setenv("ARTEX_CONFIG", t.TempDir()+"/absent.json")
-	wireAgentAugment(pg, t.TempDir(), nil)
+	wireAgentAugment(pg, t.TempDir(), t.TempDir(), nil)
 	for i, key := range []string{"planner", "worker", "planner", "worker"} {
 		tools, _, cleanup := agent.ToolAugment(t.Context(), key)
 		if cleanup != nil {

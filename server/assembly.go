@@ -26,7 +26,7 @@ import (
 // hostTools, if set, returns runtime host tools (currently the traffic tools when
 // capture is on) to add to EVERY agent's base list — the DB tools table then
 // filters them per-agent binding. Empty/nil → no host tools this run (capture off).
-func wireAgentAugment(pg *db.DB, skillDir string, hostTools func() ([]actool.CoreTool, map[string][]string)) {
+func wireAgentAugment(pg *db.DB, skillDir, dataDir string, hostTools func() ([]actool.CoreTool, map[string][]string)) {
 	// Shared across runs/agents; reconnecting must not reset a server's cooldown.
 	mcpGate := mcpguard.New(config.Load().MCPGuard)
 	agent.ToolAugment = func(ctx context.Context, agentKey string) ([]actool.CoreTool, agent.DeferredInfo, func()) {
@@ -95,6 +95,18 @@ func wireAgentAugment(pg *db.DB, skillDir string, hostTools func() ([]actool.Cor
 				skillGated := gated[m.Name]
 				if !directVisible && !skillGated {
 					continue // neither directly visible nor referenced by a visible skill
+				}
+				// Browser state is isolated per ARTEX task/chat. The persisted DB row stays
+				// portable; the run-specific profile path is injected only into this spawned
+				// MCP process. An explicit admin --user-data-dir remains untouched.
+				if m.Name == browserMCPName {
+					copyMCP := *m
+					args := decodeStrSlice(copyMCP.Args)
+					if !hasCLIArg(args, "--user-data-dir") {
+						args = append(args, "--user-data-dir", browserRunProfilePath(dataDir, agentKey, agent.RunInfoFrom(ctx)))
+						copyMCP.Args = encodeJSON(args)
+					}
+					m = &copyMCP
 				}
 				cl, ts, err := connectAndListMCP(setupCtx, m)
 				if err != nil {
@@ -186,6 +198,24 @@ func wireAgentAugment(pg *db.DB, skillDir string, hostTools func() ([]actool.Cor
 		}
 		return extra, def, cleanup
 	}
+}
+
+func browserRunProfilePath(dataDir, agentKey string, runInfo agent.RunInfo) string {
+	agentDigest := sha256.Sum256([]byte(agentKey))
+	agentSuffix := fmt.Sprintf("%x", agentDigest[:6])
+	name := "agent-" + agentSuffix
+	switch {
+	case runInfo.TaskID > 0:
+		if runInfo.IntentID > 0 {
+			name = fmt.Sprintf("task-%d-intent-%d-agent-%s", runInfo.TaskID, runInfo.IntentID, agentSuffix)
+		} else {
+			name = fmt.Sprintf("task-%d-agent-%s", runInfo.TaskID, agentSuffix)
+		}
+	case runInfo.SessionID != "":
+		digest := sha256.Sum256([]byte(runInfo.SessionID))
+		name = fmt.Sprintf("session-%x", digest[:8])
+	}
+	return filepath.Join(dataDir, "browser-profiles", name)
 }
 
 // Hash configuration so a changed endpoint/credential has independent health.

@@ -3,7 +3,9 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/Autumn-27/artex/db"
 	"github.com/Autumn-27/artex/guard"
@@ -58,21 +60,35 @@ func TestCaptureApprovalLifecycle(t *testing.T) {
 			g := guard.NewWithInterceptor(ic)
 			taskID := "approval-lifecycle-" + tc.name
 			t.Cleanup(func() { _, _ = d.Exec(`DELETE FROM intercept_pending WHERE task_id=$1`, taskID) })
-			ctx := intercept.WithTaskContext(t.Context(), taskID, "test-agent", func(a db.Activity) {
-				if a.Kind != "intercept_request" || !tc.manual {
-					return
-				}
-				var detail struct {
-					ID int64 `json:"pending_id"`
-				}
-				if err := json.Unmarshal([]byte(a.Detail), &detail); err != nil {
-					t.Error(err)
-					return
-				}
-				if err := ic.Decide(detail.ID, tc.approve); err != nil {
-					t.Error(err)
-				}
-			})
+			// This test exercises the interactive approval lifecycle. Task-only contexts
+			// are intentionally auto-approved now, so attach a real conversation ID while
+			// retaining taskID for the task-history assertions below.
+			conversation, err := d.CreateConversation("mainagent", taskID, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = d.DeleteConversation(conversation.ID) })
+			ctx := intercept.WithTaskContext(t.Context(), taskID, "test-agent", nil)
+			ctx = intercept.WithConvID(ctx, conversation.ID)
+			decisionDone := make(chan error, 1)
+			if tc.manual {
+				go func() {
+					deadline := time.Now().Add(2 * time.Second)
+					for time.Now().Before(deadline) {
+						rows, listErr := d.ListTaskIntercepts(taskID)
+						if listErr != nil {
+							decisionDone <- listErr
+							return
+						}
+						if len(rows) > 0 && rows[0].Status == "pending" {
+							decisionDone <- ic.Decide(rows[0].ID, tc.approve)
+							return
+						}
+						time.Sleep(10 * time.Millisecond)
+					}
+					decisionDone <- fmt.Errorf("pending approval did not appear")
+				}()
+			}
 			turn, executions := 0, 0
 			provider := captureUsageProvider{stream: func(_ context.Context, yield func(llm.StreamEvent, error) bool) {
 				turn++
@@ -98,10 +114,15 @@ func TestCaptureApprovalLifecycle(t *testing.T) {
 					return tool.Text("probe succeeded"), nil
 				},
 			})
-			_, _, err := captureRun(ctx, agentcore.Options{Provider: provider, Tools: []tool.CoreTool{probe}, Hooks: g.Hooks(),
+			_, _, err = captureRun(ctx, agentcore.Options{Provider: provider, Tools: []tool.CoreTool{probe}, Hooks: g.Hooks(),
 				PermissionMode: permission.ModeBypass, WorkingDir: t.TempDir(), MaxTurns: 2}, "record this review", nil)
 			if err != nil {
 				t.Fatal(err)
+			}
+			if tc.manual {
+				if err := <-decisionDone; err != nil {
+					t.Fatal(err)
+				}
 			}
 			rows, err := d.ListTaskIntercepts(taskID)
 			if err != nil || len(rows) != 1 {

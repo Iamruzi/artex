@@ -275,16 +275,18 @@ ON CONFLICT (agent_id, var_name) DO UPDATE
 		}
 		_ = d.SetSetting("interactive_shell_default_v1", "true")
 	}
-	// Seed the built-in browser (Playwright) MCP once — DISABLED by default (用户
-	// 需要时自行启用), no proxy by default. The traffic-capture toggle injects/strips
+	// Seed the built-in browser (Playwright) MCP once. Browser-backed challenge
+	// handling is part of the shipped system, so new installs enable it with a pinned
+	// package version. Playwright chooses and downloads its portable default browser;
+	// a persistent profile is managed by playwright-mcp. The traffic-capture toggle injects/strips
 	// the recording proxy + CA at runtime (server.Manager.syncBrowserMCPProxy).
 	// Insert only if absent so we never clobber user edits (args/env/enabled/
 	// visibility) on restart.
 	if _, err := d.Exec(`
 INSERT INTO mcp_servers(name, transport, command, args, env, enabled)
-VALUES ('browser', 'stdio', 'npx', $1, '{}', false)
+VALUES ('browser', 'stdio', 'npx', $1, '{}', true)
 ON CONFLICT (name) DO NOTHING`,
-		`["@playwright/mcp","--headless"]`); err != nil {
+		`["-y","@playwright/mcp@0.0.84","--caps=vision,pdf","--no-webmcp","--redact-url-params","access_token,token,code,key,secret"]`); err != nil {
 		return fmt.Errorf("seed browser mcp: %w", err)
 	}
 	// NOTE: the placeholder ScopeSentry data-source MCP (empty URL + empty X-API-Key,
@@ -379,6 +381,8 @@ var builtinSkillVisibility = map[string][]string{
 	"code-variant-analysis":     {"auto", "pentest", "worker"},
 	"pentest-plan":              {"planner", "mainagent", "auto", "pentest"},
 	"web-browser-testing":       {"auto", "pentest", "worker"},
+	"browser-challenge-testing": {"auto", "pentest", "worker"},
+	"src-6k-security-research":  {"planner", "mainagent", "auto", "pentest", "worker"},
 	"web-pentest-owasp":         {"planner", "auto", "pentest", "worker"},
 	"web-pentest-strobes":       {"auto", "pentest", "worker"},
 }

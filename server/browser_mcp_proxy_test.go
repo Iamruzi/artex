@@ -49,6 +49,28 @@ func TestReferencesConfig(t *testing.T) {
 	}
 }
 
+func TestEnsureBrowserSecurityArgs(t *testing.T) {
+	got := ensureBrowserSecurityArgs([]string{"--browser=chrome"})
+	joined := strings.Join(got, " ")
+	for _, want := range []string{
+		"--no-webmcp",
+		"--redact-url-params access_token,token,code,key,secret",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("ensureBrowserChallengeArgs = %v, missing %q", got, want)
+		}
+	}
+
+	custom := []string{
+		"--no-webmcp",
+		"--redact-url-params=session",
+	}
+	got = ensureBrowserSecurityArgs(custom)
+	if strings.Join(got, " ") != strings.Join(custom, " ") {
+		t.Fatalf("explicit user args must be preserved without duplicates: %v", got)
+	}
+}
+
 func TestRedactURL(t *testing.T) {
 	got := redactURL("http://artex:s3cret@127.0.0.1:8788")
 	if strings.Contains(got, "s3cret") || !strings.Contains(got, "artex") {

@@ -733,6 +733,7 @@ func (m *Manager) syncBrowserMCPProxy() {
 	args := stripProxyArgs(raw)
 	cfgPath := m.browserMCPProxyConfigPath()
 	args = stripManagedProxyConfig(args, cfgPath)
+	args = ensureBrowserSecurityArgs(args)
 	env := decodeStrMap(srv.Env)
 	delete(env, "NODE_EXTRA_CA_CERTS")
 	if proxy != "" {
@@ -802,6 +803,31 @@ func stripProxyArgs(args []string) []string {
 // written 0600 because it contains the proxy password.
 func (m *Manager) browserMCPProxyConfigPath() string {
 	return filepath.Join(m.dir, "browser-mcp-proxy.json")
+}
+
+// ensureBrowserSecurityArgs adds the safe defaults ARTEX needs for challenge
+// handling while preserving explicit user choices. WebMCP stays off by default
+// because page-registered tool descriptions are untrusted input and are unnecessary
+// for normal browser control. The task-scoped profile path is added later in
+// wireAgentAugment, where the current RunInfo is available.
+func ensureBrowserSecurityArgs(args []string) []string {
+	out := append([]string(nil), args...)
+	if !hasCLIArg(out, "--no-webmcp") {
+		out = append(out, "--no-webmcp")
+	}
+	if !hasCLIArg(out, "--redact-url-params") {
+		out = append(out, "--redact-url-params", "access_token,token,code,key,secret")
+	}
+	return out
+}
+
+func hasCLIArg(args []string, flag string) bool {
+	for _, arg := range args {
+		if arg == flag || strings.HasPrefix(arg, flag+"=") {
+			return true
+		}
+	}
+	return false
 }
 
 // writeBrowserMCPProxyConfig persists the minimal playwright-mcp config that

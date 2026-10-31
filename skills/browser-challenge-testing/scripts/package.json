@@ -1,0 +1,14 @@
+{
+  "name": "artex-browser-challenge-tools",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Local OCR helper for ARTEX browser challenge testing",
+  "license": "UNLICENSED",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "tesseract.js": "7.0.0"
+  }
+}

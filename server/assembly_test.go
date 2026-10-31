@@ -4,11 +4,12 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
-	actool "github.com/Autumn-27/norma/tool"
 	"github.com/Autumn-27/artex/agent"
 	"github.com/Autumn-27/artex/db"
+	actool "github.com/Autumn-27/norma/tool"
 )
 
 // hasSkillTool reports whether the packed tool set contains the Skill meta-tool.
@@ -19,6 +20,30 @@ func hasSkillTool(tools []actool.CoreTool) bool {
 		}
 	}
 	return false
+}
+
+func TestBrowserRunProfilePathIsolation(t *testing.T) {
+	dataDir := t.TempDir()
+	taskOne := browserRunProfilePath(dataDir, "worker", agent.RunInfo{TaskID: 1})
+	taskTwo := browserRunProfilePath(dataDir, "worker", agent.RunInfo{TaskID: 2})
+	if taskOne == taskTwo || !strings.HasPrefix(filepath.Base(taskOne), "task-1-agent-") || !strings.HasPrefix(filepath.Base(taskTwo), "task-2-agent-") {
+		t.Fatalf("task profiles are not isolated: %q %q", taskOne, taskTwo)
+	}
+	intentOne := browserRunProfilePath(dataDir, "worker", agent.RunInfo{TaskID: 1, IntentID: 10})
+	intentTwo := browserRunProfilePath(dataDir, "worker", agent.RunInfo{TaskID: 1, IntentID: 11})
+	if intentOne == intentTwo || !strings.Contains(filepath.Base(intentOne), "intent-10") {
+		t.Fatalf("parallel worker intents must not contend for one Chrome profile: %q %q", intentOne, intentTwo)
+	}
+
+	sessionOne := browserRunProfilePath(dataDir, "mainagent", agent.RunInfo{SessionID: "conversation-one"})
+	sessionTwo := browserRunProfilePath(dataDir, "mainagent", agent.RunInfo{SessionID: "conversation-two"})
+	if sessionOne == sessionTwo || filepath.Base(sessionOne) == "conversation-one" {
+		t.Fatalf("chat profiles must be isolated and must not expose raw session ids: %q %q", sessionOne, sessionTwo)
+	}
+	unsafeAgent := browserRunProfilePath(dataDir, `..\outside/profile`, agent.RunInfo{})
+	if strings.Contains(filepath.Base(unsafeAgent), "outside") || filepath.Dir(unsafeAgent) != filepath.Join(dataDir, "browser-profiles") {
+		t.Fatalf("agent key escaped or leaked into profile path: %q", unsafeAgent)
+	}
 }
 
 // TestAssembleVisibleSkill verifies a filesystem skill made visible to an agent is
@@ -48,7 +73,7 @@ func TestAssembleVisibleSkill(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	wireAgentAugment(pg, skillDir, nil)
+	wireAgentAugment(pg, skillDir, t.TempDir(), nil)
 	t.Cleanup(func() { agent.ToolAugment = nil })
 
 	ag, _ := pg.GetAgentByKey("planner")
