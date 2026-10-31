@@ -1,24 +1,37 @@
 package intercept
 
-import "testing"
+import (
+	"context"
+	"fmt"
+	"testing"
+	"time"
+)
 
-func TestBackgroundApprovalDeadlineDoesNotStallOrGrant(t *testing.T) {
-	base := Decision{Action: "ask"}
-	got := backgroundApprovalDeadline(base, 0, "1")
-	if !got.TimeoutEnabled || got.TimeoutSeconds != 60 || got.TimeoutAction != "deny" {
-		t.Fatal("background approval must have a bounded fail-closed wait")
+func TestBackgroundTaskAskAutoApprovesAndAudits(t *testing.T) {
+	d := openTestDB(t)
+	ic := New(d)
+	resetAutoAllow(t, ic)
+
+	marker := fmt.Sprintf("background-auto-allow-%d", time.Now().UnixNano())
+	input := []byte(fmt.Sprintf(`{"command":%q}`, marker))
+	ctx := WithTaskContext(context.Background(), "1", "worker#1", nil)
+	start := time.Now()
+	if !ic.HandleAsk(ctx, 0, Decision{Action: "ask", Message: "需要审批"}, "Bash", input) {
+		t.Fatal("background task ask should be auto-approved")
 	}
-	for _, tc := range []struct {
-		conv int64
-		task string
-	}{{1, "1"}, {0, ""}} {
-		if got := backgroundApprovalDeadline(base, tc.conv, tc.task); got.TimeoutEnabled {
-			t.Fatal("interactive or unattributed call changed")
-		}
+	if time.Since(start) > time.Second {
+		t.Fatal("background task ask should not wait for a human decision")
 	}
-	configured := Decision{Action: "ask", TimeoutEnabled: true, TimeoutSeconds: 120, TimeoutAction: "deny"}
-	got = backgroundApprovalDeadline(configured, 0, "1")
-	if got.TimeoutSeconds != 120 || got.TimeoutAction != "deny" {
-		t.Fatal("explicit policy changed")
+
+	var status, source, taskID string
+	if err := d.QueryRow(`SELECT status, decision_source, task_id FROM intercept_pending
+		WHERE tool_name='Bash' AND tool_input::text LIKE '%' || $1 || '%'`, marker).Scan(&status, &source, &taskID); err != nil {
+		t.Fatalf("background approval must be audited: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = d.Exec(`DELETE FROM intercept_pending WHERE tool_input::text LIKE '%' || $1 || '%'`, marker)
+	})
+	if status != "allowed" || source != "background_auto_allow" || taskID != "1" {
+		t.Fatalf("history=(%s,%s,%s), want (allowed,background_auto_allow,1)", status, source, taskID)
 	}
 }

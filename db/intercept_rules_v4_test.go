@@ -36,16 +36,21 @@ func TestBuiltinLateralRulePatterns(t *testing.T) {
 		},
 	}
 	misses := []string{
-		"hashcat -m 1000 ntlm.txt rockyou.txt",        // 本地破密,不拦(取舍见 db.go 注释)
-		"john --wordlist=rockyou.txt shadow.txt",      // 本地破密
-		"ssh administrator@10.0.0.5",                  // 正常登录
-		"smbclient //10.0.0.5/share -U administrator", // 正常 SMB 访问
-		"nmap -p 445,3389 10.0.0.0/24",                // 常规扫描
-		"impacket-secretsdump administrator@10.0.0.5", // secretsdump 不在本批
-		"python3 exploit.py 10.0.0.5",                 // 普通脚本
+		"hashcat -m 1000 ntlm.txt rockyou.txt",         // 本地破密,不拦(取舍见 db.go 注释)
+		"john --wordlist=rockyou.txt shadow.txt",       // 本地破密
+		"ssh administrator@10.0.0.5",                   // 正常登录
+		"smbclient //10.0.0.5/share -U administrator",  // 正常 SMB 访问
+		"nmap -p 445,3389 10.0.0.0/24",                 // 常规扫描
+		"impacket-secretsdump administrator@10.0.0.5",  // secretsdump 不在本批
+		"python3 exploit.py 10.0.0.5",                  // 普通脚本
+		"echo hydra is installed",                      // 只在文本中提及
+		"cat notes/medusa.md",                          // 同名文件
+		`{"command":"printf 'hydra medusa kerbrute'"}`, // JSON 工具参数中的文本
 	}
-	// 已知取舍:"cat medusa.jpg" 这类同名词文件会命中 hydra/medusa 的词边界匹配,
-	// ask(非 deny)下误伤代价是一次人工确认,可接受;不为消灭它把正则写复杂。
+	jsonHits := []string{
+		`{"command":"hydra -l root -P pass.txt ssh://10.0.0.5"}`,
+		`{"command":"cd /tmp && medusa -h 10.0.0.5 -u root -P pass.txt -M ssh"}`,
+	}
 	var rules []*regexp.Regexp
 	for _, r := range builtinLateralRules {
 		re, err := regexp.Compile(r.pattern)
@@ -73,5 +78,36 @@ func TestBuiltinLateralRulePatterns(t *testing.T) {
 		if matchAny(c) {
 			t.Errorf("误伤正常命令: %s", c)
 		}
+	}
+	for _, c := range jsonHits {
+		if !matchAny(c) {
+			t.Errorf("JSON 中的真实执行命令应命中: %s", c)
+		}
+	}
+}
+
+func TestInterceptRulesV9Migration(t *testing.T) {
+	d, err := Open(testDSN(t))
+	if err != nil {
+		t.Skipf("postgres unavailable (%v)", err)
+	}
+	defer d.Close()
+
+	var hydraPattern string
+	if err := d.QueryRow(`SELECT pattern FROM intercept_rules WHERE name=$1 ORDER BY id LIMIT 1`,
+		"[内置] 口令喷洒/爆破: hydra").Scan(&hydraPattern); err != nil {
+		t.Fatal(err)
+	}
+	if hydraPattern != builtinLateralRules[1].pattern {
+		t.Fatalf("hydra pattern was not migrated: %q", hydraPattern)
+	}
+
+	var action string
+	if err := d.QueryRow(`SELECT action FROM intercept_rules WHERE name=$1 ORDER BY id LIMIT 1`,
+		"[内置] 批量清空 / 清除接口路径").Scan(&action); err != nil {
+		t.Fatal(err)
+	}
+	if action != "ask" {
+		t.Fatalf("clear-endpoint action=%q, want ask", action)
 	}
 }

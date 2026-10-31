@@ -79,12 +79,24 @@ func (i *Interceptor) AutoAllowStatus() AutoAllowState {
 // the approval into history with decision_source = "auto_allow" (审计完整,可
 // 区分无人值守放行与人工/模型/规则裁决), then allow without creating a pending
 // record. deny 规则不经过这里(guard 的 deny 分支直接拦截,不受本开关影响)。
-func (i *Interceptor) autoAllowApprove(ctx context.Context, convID int64, dec Decision, toolName string, input []byte) {
+func (i *Interceptor) automaticApprove(ctx context.Context, convID int64, dec Decision, toolName string, input []byte, source, prefix string) {
 	taskID, agentName := taskInfoFromCtx(ctx)
 	audit := auditFor(ctx, dec, input, "allowed")
-	reason := fmt.Sprintf("一键放行自动批准: %s", dec.Message)
-	id, err := i.db.CreateDecidedInterceptWithSource(dec.RuleID, convID, taskID, agentName, toolName, input, "allowed", reason, "auto_allow", audit)
+	reason := fmt.Sprintf("%s: %s", prefix, dec.Message)
+	id, err := i.db.CreateDecidedInterceptWithSource(dec.RuleID, convID, taskID, agentName, toolName, input, "allowed", reason, source, audit)
 	if err == nil {
 		i.bindResult(ctx, id, audit)
 	}
+}
+
+func (i *Interceptor) autoAllowApprove(ctx context.Context, convID int64, dec Decision, toolName string, input []byte) {
+	i.automaticApprove(ctx, convID, dec, toolName, input, "auto_allow", "一键放行自动批准")
+}
+
+// backgroundAutoApprove keeps unattended task execution non-blocking. An ask
+// rule is advisory for a background task: it is written to history for review,
+// then approved immediately. Hard deny rules are handled before HandleAsk and
+// remain enforced.
+func (i *Interceptor) backgroundAutoApprove(ctx context.Context, dec Decision, toolName string, input []byte) {
+	i.automaticApprove(ctx, 0, dec, toolName, input, "background_auto_allow", "后台任务自动批准")
 }

@@ -319,6 +319,9 @@ ON CONFLICT (name) DO NOTHING`,
 	if err := d.seedDefaultInterceptRulesV8(); err != nil {
 		return fmt.Errorf("seed intercept rules v8: %w", err)
 	}
+	if err := d.seedDefaultInterceptRulesV9(); err != nil {
+		return fmt.Errorf("seed intercept rules v9: %w", err)
+	}
 	if err := d.migrateCriticalDirectoryRule(); err != nil {
 		return fmt.Errorf("migrate critical-directory rule: %w", err)
 	}
@@ -700,29 +703,32 @@ const lateralHint = "横向移动/口令喷洒属高动静动作(可锁死账号
 // 取舍说明:hashcat 不列入——它是本地破密工具,只有命令行同时出现目标 host 才该
 // 拦,而「任意 hashcat 参数里含 IP/域名」用正则表达会大量误伤本地破解场景
 // (字典/掩码路径常含点分数字),宁可不列、在工具与提示侧约束,也不做半吊子拦截。
+const shellExecutionBoundary = `(?:^|"command"\s*:\s*"|\\n\s*|[\r\n|;&]\s*|&&\s*|\|\|\s*)`
+const shellExecutionPrefix = shellExecutionBoundary + `(?:(?:sudo|env)\s+)?(?:timeout\s+\S+\s+)?`
+
 var builtinLateralRules = []struct {
 	name    string
 	pattern string
 }{
 	{
 		name:    "[内置] 口令喷洒/爆破: crackmapexec/nxc",
-		pattern: `(?i)\b(?:crackmapexec|cme|nxc|netexec)\b`,
+		pattern: `(?i)` + shellExecutionPrefix + `(?:\S*/)?(?:crackmapexec|cme|nxc|netexec)\b`,
 	},
 	{
 		name:    "[内置] 口令喷洒/爆破: hydra",
-		pattern: `(?i)\bhydra\b`,
+		pattern: `(?i)` + shellExecutionPrefix + `(?:\S*/)?hydra\b`,
 	},
 	{
 		name:    "[内置] 口令喷洒/爆破: medusa",
-		pattern: `(?i)\bmedusa\b`,
+		pattern: `(?i)` + shellExecutionPrefix + `(?:\S*/)?medusa\b`,
 	},
 	{
 		name:    "[内置] 横向执行: psexec/wmiexec/smbexec",
-		pattern: `(?i)\b(?:psexec|wmiexec|smbexec|atexec|dcomexec)(?:\.py)?\b`,
+		pattern: `(?i)` + shellExecutionPrefix + `(?:(?:\S*/)?python[0-9.]*\s+)?(?:\S*/)?(?:impacket-)?(?:psexec|wmiexec|smbexec|atexec|dcomexec)(?:\.py)?\b`,
 	},
 	{
 		name:    "[内置] 域 Kerberos 枚举/喷洒: kerbrute",
-		pattern: `(?i)\bkerbrute\b`,
+		pattern: `(?i)` + shellExecutionPrefix + `(?:\S*/)?kerbrute\b`,
 	},
 }
 
@@ -880,4 +886,29 @@ WHERE NOT EXISTS (SELECT 1 FROM intercept_rules WHERE name = $1)`,
 		return fmt.Errorf("rule %q: %w", name, err)
 	}
 	return d.SetSetting("intercept_default_rules_v8", "done")
+}
+
+// seedDefaultInterceptRulesV9 removes two sources of unattended-task stalls:
+// lateral-tool rules now match executable command positions instead of any text
+// mention, and clear-like application endpoints become advisory asks. Background
+// tasks auto-approve asks in the interceptor while interactive sessions can still
+// review them. Destructive host/database rules remain hard denies.
+func (d *DB) seedDefaultInterceptRulesV9() error {
+	if v, _, _ := d.GetSetting("intercept_default_rules_v9"); v == "done" {
+		return nil
+	}
+	for _, r := range builtinLateralRules {
+		if _, err := d.Exec(`UPDATE intercept_rules SET pattern=$2 WHERE name=$1`, r.name, r.pattern); err != nil {
+			return fmt.Errorf("update rule %q: %w", r.name, err)
+		}
+	}
+	if _, err := d.Exec(`
+UPDATE intercept_rules
+SET action='ask', message=$2, timeout_enabled=false, timeout_seconds=60, timeout_action='deny'
+WHERE name=$1`,
+		"[内置] 批量清空 / 清除接口路径",
+		"检测到清空类业务接口；后台授权测试自动放行并记录，交互会话需人工确认"); err != nil {
+		return fmt.Errorf("update clear-endpoint rule: %w", err)
+	}
+	return d.SetSetting("intercept_default_rules_v9", "done")
 }

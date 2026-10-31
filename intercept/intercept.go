@@ -4,9 +4,8 @@
 //
 //   - allow: immediately permits the call, skipping lower-priority rules.
 //   - deny:  blocks the call and returns a message to the model.
-//   - ask:   blocks the call, creates an intercept_pending record, writes an
-//     activity to the active conversation, then waits for the user to approve or
-//     deny via the /api/intercept/pending/{id}/decide endpoint.
+//   - ask:   interactive calls create an intercept_pending record and wait for a
+//     decision; unattended task calls are approved immediately and audited.
 //
 // The timeout behaviour is configurable at runtime via SetTimeoutConfig.
 package intercept
@@ -594,18 +593,24 @@ func (i *Interceptor) Log(ctx context.Context, convID int64, dec Decision, toolN
 	}
 }
 
-// HandleAsk creates a pending approval record and blocks until the user decides
+// HandleAsk auto-approves unattended task calls with a complete audit record.
+// Interactive calls create a pending approval and block until the user decides
 // (via /api/intercept/pending/{id}/decide) or the per-rule timeout elapses.
-// Returns true if the user approved.
+// Returns true when the call may execute.
 //
 // 一键放行(guard_auto_allow)启用中时不创建 pending 记录,直接批准并写历史
 // (decision_source = "auto_allow");到期后自动恢复人工审批。
 //
-// convID == 0 means no active conversation (background pentest task). The
-// pending record is still created (conversation_id = NULL) so the approvals
-// page shows it and the sidebar badge lights up. When no explicit timeout is
-// configured, background tasks skip this call after 60s so other work can proceed.
+// convID == 0 with a task ID means an unattended pentest task. Ask decisions
+// are advisory there: approve immediately and keep the decision in history.
+// Explicit deny rules never enter this function and remain enforced.
 func (i *Interceptor) HandleAsk(ctx context.Context, convID int64, dec Decision, toolName string, input []byte) bool {
+	taskID, agentName := taskInfoFromCtx(ctx)
+	if convID == 0 && taskID != "" {
+		i.backgroundAutoApprove(ctx, dec, toolName, input)
+		return true
+	}
+
 	// 一键放行(带时限):启用中直接放行,不进 pending;历史记 decision_source=
 	// "auto_allow"。每次裁决前 AutoAllowStatus 做惰性到期检查,过期自动关闭。
 	// 仅作用于 ask 审批;deny 规则在 guard 的 deny 分支拦截,不经过这里。
@@ -615,8 +620,6 @@ func (i *Interceptor) HandleAsk(ctx context.Context, convID int64, dec Decision,
 	}
 
 	ruleID := dec.RuleID
-	taskID, agentName := taskInfoFromCtx(ctx)
-	dec = backgroundApprovalDeadline(dec, convID, taskID)
 	taskEmit := taskEmitFromCtx(ctx)
 
 	audit := auditFor(ctx, dec, input, "pending")
@@ -696,17 +699,6 @@ func (i *Interceptor) HandleAsk(ctx context.Context, convID int64, dec Decision,
 		_ = i.db.CompleteIntercept(pendingID, audit.RunID, audit.ToolUseID, "not_executed", "执行前工作已取消", false)
 		return false
 	}
-}
-
-// Keep explicit approval policies and interactive chat unchanged. Unattended
-// background tasks must not wait forever or silently authorize an ask action.
-func backgroundApprovalDeadline(dec Decision, convID int64, taskID string) Decision {
-	if convID == 0 && taskID != "" && !dec.TimeoutEnabled {
-		dec.TimeoutEnabled = true
-		dec.TimeoutSeconds = 60
-		dec.TimeoutAction = "deny"
-	}
-	return dec
 }
 
 var ErrAlreadyDecided = errors.New("审批已处理或不存在，请刷新记录")

@@ -14,3 +14,10 @@ func TestApprovalFilterAcceptsExplicitAutoAllowSource(t *testing.T) {
 		t.Fatal("invalid source accepted")
 	}
 }
+
+func TestApprovalFilterAcceptsBackgroundAutoAllowSource(t *testing.T) {
+	filter, err := interceptFilterParams(url.Values{"decision_source": []string{"background_auto_allow"}})
+	if err != nil || filter.DecisionSource != "background_auto_allow" {
+		t.Fatalf("filter=%+v err=%v", filter, err)
+	}
+}

@@ -126,6 +126,7 @@ function MatchCell({ row, showReason = true }: { row: InterceptApprovalRow; show
         </p>
       ) : null}
       {source(row) === "auto_allow" ? <Badge variant="outline">自动放行</Badge> : null}
+      {source(row) === "background_auto_allow" ? <Badge variant="outline">后台自动放行</Badge> : null}
     </div>
   );
 }
@@ -790,7 +791,7 @@ export function ApprovalRecords({ taskId }: { taskId?: string }) {
           刷新
         </Button>
       </div>
-      <p className="text-muted-foreground text-sm">普通调用自动执行；命中“询问”规则时等待审批，启用限时“一键放行”后可自动批准。后台任务未配置审批超时时，默认等待 60 秒后跳过该调用；“拒绝”规则直接拦截。展开记录可查看完整请求、判定来源和执行结果。</p>
+      <p className="text-muted-foreground text-sm">普通调用自动执行；后台任务命中“询问”规则时自动批准并留存审计记录，交互会话仍等待人工审批；“拒绝”规则直接拦截。展开记录可查看完整请求、判定来源和执行结果。</p>
       <FieldGroup className="flex-row flex-wrap items-end gap-3" aria-label="审批记录筛选">
         <Field className="w-full sm:w-40">
           <FieldLabel htmlFor={`${filterID}-status`}>审批状态</FieldLabel>
@@ -837,6 +838,7 @@ export function ApprovalRecords({ taskId }: { taskId?: string }) {
                 <SelectItem value="model">模型判定</SelectItem>
                 <SelectItem value="rule">规则判定</SelectItem>
                 <SelectItem value="auto_allow">自动放行</SelectItem>
+                <SelectItem value="background_auto_allow">后台自动放行</SelectItem>
                 <SelectItem value="unknown">来源未知</SelectItem>
               </SelectGroup>
             </SelectContent>
