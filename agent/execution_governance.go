@@ -12,6 +12,7 @@ import (
 
 	"github.com/Autumn-27/artex/mcpguard"
 	"github.com/Autumn-27/norma/agentcore"
+	"github.com/Autumn-27/norma/llm"
 	actool "github.com/Autumn-27/norma/tool"
 )
 
@@ -47,7 +48,7 @@ func governTool(t actool.CoreTool) actool.CoreTool { return &governedTool{t} }
 
 func costlyTool(name string) bool {
 	switch name {
-	case "Bash", "shell_open", "shell_send", "WebFetch", "WebSearch", "measure_http_pair", "cve_search", "poc_search", "poc_get":
+	case "Bash", "extract_local_html", "shell_open", "shell_send", "WebFetch", "WebSearch", "measure_http_pair", "cve_search", "poc_search", "poc_get":
 		return true
 	}
 	// Custom executors also gate their editor test endpoint in the server.
@@ -65,6 +66,8 @@ func (g *governedTool) Call(ctx context.Context, in json.RawMessage, tc *actool.
 			status = "cancelled"
 		case res.IsError && strings.HasPrefix(res.Flatten(), "resource_blocked:"):
 			status = "resource_blocked"
+		case res.IsError && strings.HasPrefix(res.Flatten(), "execution_repeat_blocked:"):
+			status = "repeat_blocked"
 		case errors.Is(err, mcpguard.ErrBlocked):
 			status = "mcp_blocked"
 		case err != nil || res.IsError:
@@ -79,6 +82,10 @@ func (g *governedTool) Call(ctx context.Context, in json.RawMessage, tc *actool.
 			writeExecutionRecord(tc.WorkingDir, r)
 		}
 	}()
+	if message := checkExecutionLearning(ctx, g.Name(), in, tc); message != "" {
+		noteRepeatBlocked(ctx, operationKey(g.Name(), in))
+		return actool.Errorf(message), nil
+	}
 	costly := costlyTool(g.Name())
 	if costly && ResourceAdmission != nil {
 		release, e := ResourceAdmission(ctx, g.Name())
@@ -92,7 +99,11 @@ func (g *governedTool) Call(ctx context.Context, in json.RawMessage, tc *actool.
 	if err = ctx.Err(); err != nil {
 		return actool.Result{}, err
 	}
-	return g.CoreTool.Call(ctx, in, tc)
+	res, err = g.CoreTool.Call(ctx, in, tc)
+	if advice := observeExecutionLearning(ctx, g.Name(), in, tc, res.Flatten(), err != nil || res.IsError); advice != "" {
+		res.Content = append(res.Content, llm.TextBlock(advice))
+	}
+	return res, err
 }
 
 // Each run has at most two 2 MiB journals. Serialization avoids concurrent tool
@@ -136,8 +147,24 @@ func writeExecutionRecord(dir string, r ExecutionRecord) {
 // Norma appends optional network tools inside NewSession, after host assembly.
 // Materialize them here to avoid silently bypassing the governor and ledger.
 func governSessionOptions(opts *agentcore.Options) {
+	if !strings.Contains(strings.Join(opts.SystemPrompt, "\n"), learningMarker) {
+		opts.SystemPrompt = append(opts.SystemPrompt, executionLearningPrompt(opts.WorkingDir))
+	}
 	if opts.Tools == nil {
 		opts.Tools = actool.DefaultTools()
+	}
+	hasNativeHTML := false
+	for _, tool := range opts.Tools {
+		if tool.Name() == "extract_local_html" {
+			hasNativeHTML = true
+			break
+		}
+	}
+	if !hasNativeHTML && filepath.Base(filepath.Dir(opts.WorkingDir)) == "tasks" {
+		opts.Tools = append(opts.Tools, nativeHTMLTool())
+	}
+	if !hasNativeHTML && strings.HasPrefix(filepath.Base(opts.WorkingDir), "i") && filepath.Base(filepath.Dir(filepath.Dir(opts.WorkingDir))) == "tasks" {
+		opts.Tools = append(opts.Tools, nativeHTMLTool())
 	}
 	if opts.EnableWebFetch {
 		opts.Tools = append(opts.Tools, actool.NewWebFetch(actool.WebFetchConfig{Proxy: opts.WebFetchProxy, CACert: opts.WebFetchCACert, InsecureTLS: opts.WebFetchInsecureTLS}))

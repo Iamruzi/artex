@@ -280,12 +280,16 @@ func readTool(name, desc string, schema map[string]any, run func(context.Context
 }
 
 func writeTool(name, desc string, schema map[string]any, run func(context.Context, json.RawMessage) (actool.Result, error)) actool.CoreTool {
+	return writeContextTool(name, desc, schema, func(ctx context.Context, in json.RawMessage, _ *actool.ToolContext) (actool.Result, error) {
+		return run(ctx, in)
+	})
+}
+
+func writeContextTool(name, desc string, schema map[string]any, run func(context.Context, json.RawMessage, *actool.ToolContext) (actool.Result, error)) actool.CoreTool {
 	return actool.Build(actool.Spec{
 		Name: name, Description: desc, Schema: schema,
 		Permissions: func(context.Context, json.RawMessage, acperm.Context) acperm.Decision { return acperm.Allowed() },
-		Run: func(ctx context.Context, in json.RawMessage, _ *actool.ToolContext) (actool.Result, error) {
-			return run(ctx, in)
-		},
+		Run:         run,
 	})
 }
 

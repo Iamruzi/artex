@@ -13,6 +13,7 @@ import (
 
 	"github.com/Autumn-27/artex/config"
 	"github.com/Autumn-27/artex/db"
+	"github.com/Autumn-27/artex/runtimeinfo"
 	"github.com/Autumn-27/artex/tools"
 )
 
@@ -61,6 +62,13 @@ func runDoctor(args []string) int {
 	check := func(status doctorStatus, name, note string) {
 		items = append(items, doctorItem{status, name, note})
 		fmt.Printf("[%s] %s: %s\n", status, name, note)
+	}
+	capabilities := runtimeinfo.Snapshot()
+	check(docOK, "原生 HTML 解析", "extract_local_html 已内置，不依赖 Python")
+	if capabilities.Python.Available {
+		check(docOK, "Python（可选）", capabilities.Python.Path+" · "+capabilities.Python.Version)
+	} else {
+		check(docWarn, "Python（可选）", "未发现可用 Python 3；使用内置解析工具，确需 Python 的脚本应先配置 ARTEX_PYTHON")
 	}
 
 	// 1. PostgreSQL 可连接（复用现有配置解析；轻量 ping，不走 Open 的迁移/seed)

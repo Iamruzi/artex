@@ -20,6 +20,8 @@ import (
 	"github.com/Autumn-27/artex/agent"
 	"github.com/Autumn-27/artex/buildinfo"
 	"github.com/Autumn-27/artex/config"
+	"github.com/Autumn-27/artex/llmbridge"
+	"github.com/Autumn-27/artex/runtimeinfo"
 	"github.com/Autumn-27/artex/selfupdate"
 	"github.com/Autumn-27/artex/server"
 )
@@ -54,6 +56,13 @@ func main() {
 }
 
 func run() int {
+	if len(os.Args) > 1 && os.Args[1] == "anthropic-bridge" {
+		if err := llmbridge.Run(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		return 0
+	}
 	// `artex doctor` 部署预检（期 6)：只读检查，在解析服务 flag / 起任何子系统之前分流。
 	if len(os.Args) > 1 && os.Args[1] == "doctor" {
 		return runDoctor(os.Args[2:])
@@ -76,6 +85,8 @@ func run() int {
 	// capture backend logs into the in-memory sink (still to stderr) so the /logs
 	// page can show a live log stream. Do this first, to catch startup logs too.
 	server.StartLogCapture()
+	capabilities := runtimeinfo.Snapshot()
+	log.Printf("[runtime] Python3 available=%t path=%q; native HTML parser=true", capabilities.Python.Available, capabilities.Python.Path)
 
 	// Self-update bootstrap: swap in a staged binary, or count a post-swap boot
 	// attempt and roll back if the new build keeps dying. Must run before we open

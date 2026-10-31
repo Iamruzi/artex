@@ -44,6 +44,19 @@ func callInsertAssets(t *testing.T, ts *ToolSet, payload any) map[string]any {
 // TestInsertAssetsSubdomainSideEffects
 // 子域名插入 → 自动创建 root_domain + IP 资产，IP 绑定域名
 // =====================================================================
+
+func TestInsertAssetsAllInvalidBatchIsToolError(t *testing.T) {
+	d := testDB(t)
+	defer d.Close()
+	ts := NewToolSet(nil, "")
+	ts.SetAssetStore(d.Assets(), d.Companies())
+	raw := json.RawMessage(`{"assets":[{"type":"endpoint","url":"https://invalid-method.example/"}]}`)
+	res, err := ts.insertAssets().Call(context.Background(), raw, nil)
+	if err != nil || !res.IsError || !strings.Contains(res.Flatten(), "method is required") {
+		t.Fatalf("invalid batch was reported as success: %s %v", res.Flatten(), err)
+	}
+}
+
 func TestInsertAssetsSubdomainSideEffects(t *testing.T) {
 	d := testDB(t)
 	defer d.Close()

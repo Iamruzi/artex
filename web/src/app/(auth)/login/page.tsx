@@ -50,13 +50,35 @@ export default function LoginPage() {
       window.location.replace("/function/tasks");
       return;
     }
-    api
-      .authStatus()
-      .then(({ initialized }) => {
+    // Backend restarts are transient. Recover this mounted page automatically
+    // instead of keeping the first failed check on screen until a manual reload.
+    let disposed = false;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let request: AbortController | undefined;
+    async function checkBackend() {
+      request = new AbortController();
+      const timeout = setTimeout(() => request?.abort(), 8000);
+      try {
+        const { initialized } = await api.authStatus(request.signal);
+        if (disposed) return;
+        setError("");
+        setChecking(false);
         if (!initialized) router.replace("/setup");
-      })
-      .catch(() => setError("无法连接到后端服务"))
-      .finally(() => setChecking(false));
+      } catch {
+        if (disposed) return;
+        setError("暂时无法连接到后端服务，正在自动重连…");
+        setChecking(false);
+        retryTimer = setTimeout(checkBackend, 3000);
+      } finally {
+        clearTimeout(timeout);
+      }
+    }
+    void checkBackend();
+    return () => {
+      disposed = true;
+      clearTimeout(retryTimer);
+      request?.abort();
+    };
   }, [router]);
 
   async function handleSubmit(e: React.FormEvent) {

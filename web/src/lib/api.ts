@@ -263,7 +263,7 @@ export const api = {
   health: () => get<{ ok: boolean; service: string; version: string; display_version?: string; edition?: string; revision?: string; dirty?: boolean }>("/health"),
 
   // ---- auth ----
-  authStatus: () => get<{ initialized: boolean }>("/auth/status"),
+  authStatus: (signal?: AbortSignal) => http<{ initialized: boolean }>("/auth/status", { signal, cache: "no-store" }),
   login: (username: string, password: string) => post<{ token: string }>("/auth/login", { username, password }),
   initPassword: (password: string) => post<{ token: string }>("/auth/init", { password }),
   changePassword: (oldPassword: string, newPassword: string) =>

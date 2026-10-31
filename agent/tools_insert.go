@@ -127,13 +127,16 @@ type assetInputItem struct {
 
 // insertAssets is the unified insert_assets agent tool.
 func (t *ToolSet) insertAssets() actool.CoreTool {
-	return writeTool(
+	return writeContextTool(
 		"insert_assets",
 		"批量登记新发现的资产，一次可混合多种类型（type 见枚举）。\n"+
 			"各类型必填字段：root_domain→domain；ip→ip（须为 IPv4/IPv6，非主机名）；subdomain→domain；app→app_name；service(HTTP)→url；service(非HTTP)→service_name+port（ip/domain 至少填一个）；endpoint→url+method。其余字段含义见各自说明。\n"+
 			"auth/technologies/params 为追加合并(append)，不覆盖原值。\n"+
+			"HTML 导入：可只传 html_path 和 base_url，由内置解析器按链接 GET/表单声明的方法生成并登记 endpoint，无需手写 assets；只登记同源、任务范围内的候选接口，不发请求。\n"+
 			"返回：{results:[{index,id,type}], errors:[{index,error}]}",
 		obj(map[string]any{
+			"html_path": str("已保存的本任务 HTML 路径；使用此模式不传 assets"),
+			"base_url":  str("该 HTML 抓取时的完整 URL；与 html_path 同时使用"),
 			// task_id 不暴露给模型：worker 归属哪个 task 由程序经 SetTaskID 权威赋值(见 handler)。
 			"assets": map[string]any{
 				"type":        "array",
@@ -210,16 +213,34 @@ func (t *ToolSet) insertAssets() actool.CoreTool {
 					},
 				}, "type"),
 			},
-		}, "assets"),
-		func(_ context.Context, in json.RawMessage) (actool.Result, error) {
+		}),
+		func(ctx context.Context, in json.RawMessage, tc *actool.ToolContext) (actool.Result, error) {
 			if t.as == nil {
 				return actool.Errorf("insert_assets 未启用: AssetStore 未初始化"), nil
 			}
 			var a struct {
-				Assets []assetInputItem `json:"assets"`
+				Assets   []assetInputItem `json:"assets"`
+				HTMLPath string           `json:"html_path"`
+				BaseURL  string           `json:"base_url"`
 			}
 			if err := json.Unmarshal(in, &a); err != nil {
 				return actool.Errorf("invalid input: " + err.Error()), nil
+			}
+			if err := ctx.Err(); err != nil {
+				return actool.Result{}, err
+			}
+			if a.HTMLPath != "" {
+				if len(a.Assets) > 0 {
+					return actool.Errorf("HTML 导入和 assets 数组不能同时使用"), nil
+				}
+				var err error
+				a.Assets, err = t.endpointsFromTaskHTML(ctx, a.HTMLPath, a.BaseURL, tc)
+				if err != nil {
+					return actool.Errorf("HTML 导入失败: " + err.Error()), nil
+				}
+			}
+			if len(a.Assets) == 0 {
+				return actool.Errorf("需要非空 assets，或 html_path 与 base_url 中可登记的同源链接/表单"), nil
 			}
 			// task_id 由程序权威赋值(worker: SetTaskID)，不接受模型传入——避免模型漏传/错传
 			// 导致资产未归任务或归错任务。无任务上下文的调用方(auto/pentest/chat)其 t.taskID=0。
@@ -250,6 +271,9 @@ func (t *ToolSet) insertAssets() actool.CoreTool {
 			}
 
 			for i, item := range a.Assets {
+				if err := ctx.Err(); err != nil {
+					return actool.Result{}, err
+				}
 				// 资产闸门：先拦截后允许，被拒的资产禁止插入（跳过 Upsert 及后续副作用）。
 				domains, ips, urls := assetInterceptCandidates(item)
 				if d := db.EvaluateAssetGate(blockRules, allowRules, domains, ips, urls); !d.Allowed {
@@ -395,10 +419,18 @@ func (t *ToolSet) insertAssets() actool.CoreTool {
 				}
 			}
 
-			return jsonResult(map[string]any{
+			payload := map[string]any{
 				"results": results,
 				"errors":  errs,
-			})
+			}
+			if a.HTMLPath != "" {
+				payload["source"] = map[string]any{"html_path": a.HTMLPath, "base_url": a.BaseURL, "generated": len(a.Assets), "method_basis": "HTML navigation/form declaration; endpoints have not been requested"}
+			}
+			out, resultErr := jsonResult(payload)
+			// A batch with no successful writes must be a tool failure, so the
+			// model and execution ledger can distinguish it from a successful call.
+			out.IsError = len(results) == 0 && len(errs) > 0
+			return out, resultErr
 		},
 	)
 }

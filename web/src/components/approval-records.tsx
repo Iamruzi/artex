@@ -100,7 +100,7 @@ function ApprovalOrigin({ row, detail = false }: { row: InterceptApprovalRow; de
 }
 
 function StatusBadge({ status }: { status: string }) {
-  const labels: Record<string, string> = { pending: "待审批", allowed: "已允许", denied: "已拒绝", timeout: "已超时" };
+  const labels: Record<string, string> = { pending: "等待人工审批", allowed: "已允许", denied: "已拒绝", timeout: "审批超时" };
   let variant: "default" | "destructive" | "secondary" | "outline" = "outline";
   if (status === "allowed") variant = "default";
   if (status === "denied") variant = "destructive";
@@ -125,6 +125,7 @@ function MatchCell({ row, showReason = true }: { row: InterceptApprovalRow; show
           {reason || "未记录理由"}
         </p>
       ) : null}
+      {source(row) === "auto_allow" ? <Badge variant="outline">自动放行</Badge> : null}
     </div>
   );
 }
@@ -789,7 +790,7 @@ export function ApprovalRecords({ taskId }: { taskId?: string }) {
           刷新
         </Button>
       </div>
-      <p className="text-muted-foreground text-sm">展开记录查看工具请求和审批裁决，以及当时的上下文与执行结果。</p>
+      <p className="text-muted-foreground text-sm">普通调用自动执行；命中“询问”规则时等待审批，启用限时“一键放行”后可自动批准。后台任务未配置审批超时时，默认等待 60 秒后跳过该调用；“拒绝”规则直接拦截。展开记录可查看完整请求、判定来源和执行结果。</p>
       <FieldGroup className="flex-row flex-wrap items-end gap-3" aria-label="审批记录筛选">
         <Field className="w-full sm:w-40">
           <FieldLabel htmlFor={`${filterID}-status`}>审批状态</FieldLabel>
@@ -835,6 +836,7 @@ export function ApprovalRecords({ taskId }: { taskId?: string }) {
                 <SelectItem value="all">全部来源</SelectItem>
                 <SelectItem value="model">模型判定</SelectItem>
                 <SelectItem value="rule">规则判定</SelectItem>
+                <SelectItem value="auto_allow">自动放行</SelectItem>
                 <SelectItem value="unknown">来源未知</SelectItem>
               </SelectGroup>
             </SelectContent>

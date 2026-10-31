@@ -26,6 +26,7 @@ func Causef(code, short, format string, args ...any) *AbortCause {
 }
 
 var (
+	AbortRepeatedToolFailure = cause("repeated_tool_failure", "当前方向反复提交已失败的调用，已停止空转", "同一失败调用在被拦截后仍重复提交，当前 Agent 运行已停止；任务未被取消，已登记产物保留，由规划者选择其他方向。不要原样重跑此意图。")
 	// Task-level execution context.
 	AbortPausedByUser = cause("paused_by_user", "用户暂停了任务",
 		"用户通过任务控制接口（POST /api/tasks/{id}/control，action=pause）暂停了任务。本次 Planner/Worker 运行被主动取消；运行中的意图会退回 frontier(open)，恢复任务后重新领取并从头执行")

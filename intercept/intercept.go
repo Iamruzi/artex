@@ -603,8 +603,8 @@ func (i *Interceptor) Log(ctx context.Context, convID int64, dec Decision, toolN
 //
 // convID == 0 means no active conversation (background pentest task). The
 // pending record is still created (conversation_id = NULL) so the approvals
-// page shows it and the sidebar badge lights up. The worker thread blocks just
-// like in a chat session — the user must visit the approvals page to unblock it.
+// page shows it and the sidebar badge lights up. When no explicit timeout is
+// configured, background tasks skip this call after 60s so other work can proceed.
 func (i *Interceptor) HandleAsk(ctx context.Context, convID int64, dec Decision, toolName string, input []byte) bool {
 	// 一键放行(带时限):启用中直接放行,不进 pending;历史记 decision_source=
 	// "auto_allow"。每次裁决前 AutoAllowStatus 做惰性到期检查,过期自动关闭。
@@ -616,6 +616,7 @@ func (i *Interceptor) HandleAsk(ctx context.Context, convID int64, dec Decision,
 
 	ruleID := dec.RuleID
 	taskID, agentName := taskInfoFromCtx(ctx)
+	dec = backgroundApprovalDeadline(dec, convID, taskID)
 	taskEmit := taskEmitFromCtx(ctx)
 
 	audit := auditFor(ctx, dec, input, "pending")
@@ -695,6 +696,17 @@ func (i *Interceptor) HandleAsk(ctx context.Context, convID int64, dec Decision,
 		_ = i.db.CompleteIntercept(pendingID, audit.RunID, audit.ToolUseID, "not_executed", "执行前工作已取消", false)
 		return false
 	}
+}
+
+// Keep explicit approval policies and interactive chat unchanged. Unattended
+// background tasks must not wait forever or silently authorize an ask action.
+func backgroundApprovalDeadline(dec Decision, convID int64, taskID string) Decision {
+	if convID == 0 && taskID != "" && !dec.TimeoutEnabled {
+		dec.TimeoutEnabled = true
+		dec.TimeoutSeconds = 60
+		dec.TimeoutAction = "deny"
+	}
+	return dec
 }
 
 var ErrAlreadyDecided = errors.New("审批已处理或不存在，请刷新记录")

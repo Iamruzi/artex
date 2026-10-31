@@ -319,6 +319,9 @@ ON CONFLICT (name) DO NOTHING`,
 	if err := d.seedDefaultInterceptRulesV8(); err != nil {
 		return fmt.Errorf("seed intercept rules v8: %w", err)
 	}
+	if err := d.migrateCriticalDirectoryRule(); err != nil {
+		return fmt.Errorf("migrate critical-directory rule: %w", err)
+	}
 	if err := d.seedDefaultAssetInterceptRules(); err != nil {
 		return fmt.Errorf("seed asset intercept rules: %w", err)
 	}
@@ -425,7 +428,7 @@ func (d *DB) seedDefaultInterceptRules() error {
 			name:     "[内置] 删除系统关键目录",
 			target:   "tool_input",
 			typ:      "regex",
-			pattern:  `\brm\b[^"'\n]{0,60}["'\s](/|/etc|/bin|/usr|/boot|/var|/lib|/sys|/proc|/dev|/sbin|/root)`,
+			pattern:  criticalDirectoryDeletePattern,
 			action:   "deny",
 			message:  "禁止删除系统关键路径",
 			priority: 100,

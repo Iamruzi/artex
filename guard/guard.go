@@ -194,7 +194,10 @@ func (g *Guard) applyIntercept(ctx context.Context, ev hook.Event) hook.Result {
 		}
 		convID := intercept.ConvIDFromContext(ctx)
 		if !g.interceptor.HandleAsk(ctx, convID, dec, ev.ToolName, ev.Input) {
-			return g.block(ev.ToolName, systemBlockMessage("人工审批未通过（用户拒绝或审批超时）"), "")
+			if ctx.Err() != nil {
+				return g.block(ev.ToolName, systemBlockMessage("本次执行已取消，待审批调用未执行；不是用户作出了拒绝决定"), "")
+			}
+			return g.block(ev.ToolName, systemBlockMessage("该调用未获人工批准（拒绝或审批超时），没有执行。记录此限制，继续其他已授权路径；不要重复提交同一调用"), "")
 		}
 		return hook.Result{}
 	}
