@@ -6,12 +6,14 @@ import (
 	"testing"
 
 	"github.com/Autumn-27/artex/db"
+	"github.com/Autumn-27/artex/internal/testdb"
 )
 
 // Hold the same advisory lock as db, agent, server, evidence and intercept so
 // PG-backed tests serialize across packages on the shared dev DB. Without a
 // configured database, tests that need PG skip themselves.
 func TestMain(m *testing.M) {
+	testdb.Configure()
 	dsn, _, err := db.DSN()
 	if err != nil {
 		os.Exit(m.Run())

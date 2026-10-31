@@ -9,5 +9,5 @@ while IFS= read -r package; do
   index=$((index + 1))
   database="artex_ci_${index}"
   psql "${ARTEX_TEST_PG_BASE}/postgres?sslmode=disable" -v ON_ERROR_STOP=1 -c "CREATE DATABASE ${database}" >/dev/null
-  ARTEX_PG_DSN="${ARTEX_TEST_PG_BASE}/${database}?sslmode=disable" go test -p 1 -count=1 -timeout 5m "$package"
+  ARTEX_TEST_PG_DSN="${ARTEX_TEST_PG_BASE}/${database}?sslmode=disable" go test -p 1 -count=1 -timeout 5m "$package"
 done <<< "$packages"

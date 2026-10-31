@@ -6,11 +6,13 @@ import (
 	"testing"
 
 	"github.com/Autumn-27/artex/db"
+	"github.com/Autumn-27/artex/internal/testdb"
 )
 
 // Initialize an explicitly configured fresh database before taking the same
 // suite lock as db, agent and server. Hold it on one pinned connection.
 func TestMain(m *testing.M) {
+	testdb.Configure()
 	if os.Getenv("ARTEX_PG_DSN") == "" {
 		os.Exit(m.Run())
 	}

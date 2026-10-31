@@ -8,7 +8,7 @@ permissions:
 
 jobs:
   # ① Go 全量测试门：带真实 PostgreSQL 服务，db/agent/server 的 PG 测试不再
-  #    静默跳过（本地无 ARTEX_PG_DSN 时这些测试仍会 skip，见 db/testmain_test.go）。
+  #    静默跳过（本地无 ARTEX_TEST_PG_DSN 时这些测试仍会 skip，见 db/testmain_test.go）。
   #    注意：带 DSN 后会真实执行全部 PG 测试，若个别用例在 CI 环境暴露出既有
   #    依赖问题，应修测试本身，而不是摘掉这个门。
   test:

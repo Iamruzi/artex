@@ -6,6 +6,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/Autumn-27/artex/internal/testdb"
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
@@ -15,16 +16,17 @@ import (
 // avoid cross-package cleanup races (e.g. DELETE FROM assets WHERE id > X
 // from one package deleting assets created by another).
 func TestMain(m *testing.M) {
+	testdb.Configure()
 	dsn, _, err := DSN()
 	if err != nil {
 		// No DB configured — tests that need PG will skip themselves.
 		// WARNING: this makes `go test ./...` look green while every PG-backed
 		// test is silently skipped. Local dev keeps this lenient on purpose,
-		// but CI (release.yml `test` job) MUST provide ARTEX_PG_DSN so the
+		// but CI (release.yml `test` job) MUST provide ARTEX_TEST_PG_DSN so the
 		// suite actually runs — a green CI run with this warning in the log
 		// means the gate is broken, not that the tests passed.
 		fmt.Fprintf(os.Stderr,
-			"\n*** WARNING: db tests running without ARTEX_PG_DSN — all PostgreSQL-backed tests will SKIP silently. CI must set ARTEX_PG_DSN. ***\n\n")
+			"\n*** WARNING: db tests running without ARTEX_TEST_PG_DSN — all PostgreSQL-backed tests will SKIP silently. CI must set ARTEX_TEST_PG_DSN. ***\n\n")
 		os.Exit(m.Run())
 	}
 	conn, err := sql.Open("pgx", dsn)
