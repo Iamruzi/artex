@@ -3723,7 +3723,11 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 409, "主 Agent 正在处理上一条消息，请稍候")
 		return
 	}
-	ctx, cancel := context.WithCancelCause(s.ctx)
+	// Task-detail main-agent turns use the same configured wall-clock budget as
+	// ordinary agent conversations.  Previously this path only had a manual
+	// cancel context, so a provider/tool loop that kept retrying could leave the
+	// UI in running=true forever even though agents.run_seconds was configured.
+	ctx, cancel, releaseDeadline := newTaskChatContext(s.ctx, time.Duration(s.agentRunSeconds("mainagent"))*time.Second)
 	ctx = intercept.WithReviewContext(ctx, "", intercept.ReviewBackground{Source: intercept.BackgroundUserMessage, Text: req.Message})
 	s.chatBusy[t.ID] = true
 	s.chatCancel[t.ID] = cancel
@@ -3761,6 +3765,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		// handler returns immediately and the browser never needs to hold the request.
 		go func() {
 			defer func() {
+				releaseDeadline()
 				s.finishTaskChat(t.ID, cancel)
 			}()
 			// emit every step (thinking/tool_use/tool_result/text/result) so the main
@@ -3788,8 +3793,22 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	}
 	reply := s.fallbackChat(t, req.Message)
 	s.engine.emitActivity(t, db.Activity{Worker: "mainagent", Kind: "text", Summary: reply, MainSeg: segPtr})
+	releaseDeadline()
 	s.finishTaskChat(t.ID, cancel)
 	writeJSON(w, 200, map[string]any{"reply": reply, "mode": "rule"})
+}
+
+// newTaskChatContext gives a task-detail main-agent turn both cancellation
+// controls it needs: cancel stops it immediately from the UI, while the deadline
+// prevents an unresponsive provider/tool loop from holding chatBusy forever.
+// A non-positive duration keeps the administrator's explicit unlimited setting.
+func newTaskChatContext(parent context.Context, maxDuration time.Duration) (context.Context, context.CancelCauseFunc, context.CancelFunc) {
+	base, cancel := context.WithCancelCause(parent)
+	if maxDuration <= 0 {
+		return base, cancel, func() {}
+	}
+	ctx, releaseDeadline := context.WithTimeoutCause(base, maxDuration, agent.AbortRunHardTimeout)
+	return ctx, cancel, releaseDeadline
 }
 
 func (s *Server) cancelTaskChat(taskID string, cause error) bool {
