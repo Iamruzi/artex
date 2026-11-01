@@ -84,11 +84,15 @@ func TestExecutionLearningChallengeHasHostBudgetWithoutWAFInference(t *testing.T
 	observeExecutionLearning(ctx, "WebFetch", first, tc, "Cloudflare CAPTCHA challenge", true)
 	observeExecutionLearning(ctx, "Bash", second, tc, "cf-mitigated: challenge", false)
 	third := json.RawMessage(`{"url":"https://example.com/c"}`)
-	if !strings.Contains(checkExecutionLearning(ctx, "WebFetch", third, tc), "未发送请求") {
+	blocked := checkExecutionLearning(ctx, "WebFetch", third, tc)
+	if !strings.Contains(blocked, "HTTP 请求未发送") || !strings.Contains(blocked, "browser-challenge-testing") || !strings.Contains(blocked, "不需要先重置") {
 		t.Fatal("challenge retry changed path/UA to evade host budget")
 	}
 	if checkExecutionLearning(ctx, "WebFetch", json.RawMessage(`{"url":"https://other.example.org/"}`), tc) != "" {
 		t.Fatal("challenge contaminated a different host")
+	}
+	if prompt := executionLearningPrompt(tc.WorkingDir); !strings.Contains(prompt, "browser-challenge-testing") {
+		t.Fatal("planner prompt did not direct challenge handling to the browser skill")
 	}
 }
 

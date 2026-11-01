@@ -381,7 +381,7 @@ var builtinSkillVisibility = map[string][]string{
 	"code-variant-analysis":     {"auto", "pentest", "worker"},
 	"pentest-plan":              {"planner", "mainagent", "auto", "pentest"},
 	"web-browser-testing":       {"auto", "pentest", "worker"},
-	"browser-challenge-testing": {"auto", "pentest", "worker"},
+	"browser-challenge-testing": {"planner", "mainagent", "auto", "pentest", "worker"},
 	"src-6k-security-research":  {"planner", "mainagent", "auto", "pentest", "worker"},
 	"web-pentest-owasp":         {"planner", "auto", "pentest", "worker"},
 	"web-pentest-strobes":       {"auto", "pentest", "worker"},

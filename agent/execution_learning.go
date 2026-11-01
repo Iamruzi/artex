@@ -167,7 +167,7 @@ func lessonAdvice(category string) string {
 	case "powershell_alias":
 		return "PowerShell 的 curl 别名发生参数错误：使用 curl.exe 与 PowerShell 正确引号；复杂命令先写脚本。"
 	case "http_challenge":
-		return "已观察到明确的 Cloudflare/验证码挑战：记录访问受阻；重复换 UA、参数或请求方式不是新证据。转向已有产物、其它允许检查或请求站点所有者提供合法测试会话/测试入口，不尝试绕过挑战。"
+		return "已观察到明确的 Cloudflare/Turnstile/验证码挑战：停止使用 Bash、curl 或 WebFetch 换 UA、参数和请求方式重试。下一步加载 browser-challenge-testing 技能并使用 browser_navigate 打开目标，复用该任务的可见持久浏览器会话；先等待普通 JS challenge 完成，再读取页面。只有浏览器实际显示必须人工点选的交互挑战时才等待用户，不能把挑战页当成目标正文。"
 	case "tool_failure":
 		return "该相同调用已失败：先检查执行记录和前置条件，给出实际改变及预期信号再行动，不原样重试。"
 	case "tool_arguments":
@@ -221,7 +221,7 @@ func checkExecutionLearning(ctx context.Context, tool string, raw json.RawMessag
 	defer learningMu.Unlock()
 	s := loadLearning(root)
 	if host := requestHost(tool, raw); host != "" && s.Challenges[host] >= 2 {
-		return "execution_repeat_blocked: " + lessonAdvice("http_challenge") + " 本次未发送请求。需人工确认访问条件已改变后，才能重置此任务的挑战记录。"
+		return "execution_repeat_blocked: " + lessonAdvice("http_challenge") + " 本次 HTTP 请求未发送；浏览器路径仍可继续，不需要先重置挑战记录。"
 	}
 	if prior := s.Operations[operationKey(tool, raw)]; prior.Count >= 2 && (prior.Category != "tool_failure" || prior.RetryAfterUnix > time.Now().Unix()) {
 		return "execution_repeat_blocked: " + lessonAdvice(prior.Category) + " 此调用已失败两次，本次未执行。"
@@ -280,7 +280,7 @@ func observeExecutionLearning(ctx context.Context, tool string, raw json.RawMess
 }
 
 func executionLearningPrompt(dir string) string {
-	message := "\n\n" + learningMarker + "\n" + shellEnvironment(runtime.GOOS) + runtimeinfo.Prompt() + " 以上仅适用于本地工具，不代表远端环境。\n调用失败后总结原因、实际改变和下一步预期信号；优先复用任务文件和已采集流量。同一请求若仅换 UA/措辞而条件未改变，不视为新路径。规划器应尽快派发可执行的小意图，由 Worker 验证，不要自己长时间反复下载或调试命令。访问挑战需作为阻塞事实记录；未验证保持未验证。"
+	message := "\n\n" + learningMarker + "\n" + shellEnvironment(runtime.GOOS) + runtimeinfo.Prompt() + " 以上仅适用于本地工具，不代表远端环境。\n调用失败后总结原因、实际改变和下一步预期信号；优先复用任务文件和已采集流量。同一请求若仅换 UA/措辞而条件未改变，不视为新路径。规划器应尽快派发可执行的小意图，由 Worker 验证，不要自己长时间反复下载或调试命令。遇到 Cloudflare/Turnstile 时必须切换到 browser-challenge-testing 的可见持久浏览器会话，不再派发 curl/WebFetch 重试；未验证保持未验证。"
 	// The trusted directory is selected by the caller; no target output becomes instructions.
 	root := dir
 	if strings.HasPrefix(filepath.Base(root), "i") {
