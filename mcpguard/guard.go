@@ -113,7 +113,7 @@ func (g *guardedTool) Call(ctx context.Context, in json.RawMessage, tc *actool.T
 	completed = true
 	timedOut = errors.Is(callCtx.Err(), context.DeadlineExceeded) && ctx.Err() == nil
 	if timedOut {
-		return actool.Errorf(fmt.Sprintf("mcp_tool_timeout: 单次 MCP 工具调用超过 %s，已取消；请保留已有结果并换用更小的调用或其他路线。", g.manager.callTimeout)), nil
+		return actool.Errorf(fmt.Sprintf("mcp_tool_timeout: 单次 MCP 工具调用超过 %s，已停止等待；远端操作是否结束尚未确认。请先核验当前状态，保留已有结果，改用更小且有自身超时的调用；不要直接重放可能修改状态的操作。", g.manager.callTimeout)), nil
 	}
 	return
 }

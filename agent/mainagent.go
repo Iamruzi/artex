@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/Autumn-27/artex/db"
 	"github.com/Autumn-27/artex/guard"
@@ -26,6 +27,7 @@ type MainAgent struct {
 	window          int                                    // context window in tokens (for compaction)
 	windowFn        func() int                             // optional dynamic task-chain minimum
 	maxTurns        int                                    // max agent turns per run (0 = unlimited)
+	runTimeout      time.Duration                          // per-turn soft budget, followed by settlement
 	proxyAddr       string                                 // recording proxy for WebFetch (empty = direct)
 	proxyCACert     string                                 // recording proxy's CA cert path (HTTPS verify)
 	webSearch       WebSearchOpts                          // web_search tool backend selection (off by default)
@@ -44,6 +46,10 @@ func (m *MainAgent) SetNonStreaming(fn func() bool) { m.nonStreamingFn = fn }
 
 // SetNoaEnabled selects experimental session compression for subsequent runs.
 func (m *MainAgent) SetNoaEnabled(fn func() bool) { m.noaEnabledFn = fn }
+
+// SetRunTimeout applies the configured run budget through the SDK so a timed-out
+// tool can be interrupted while the parent context remains alive for settlement.
+func (m *MainAgent) SetRunTimeout(timeout time.Duration) { m.runTimeout = timeout }
 
 func (m *MainAgent) nonStreaming() bool { return m.nonStreamingFn != nil && m.nonStreamingFn() }
 
@@ -171,7 +177,8 @@ func (m *MainAgent) Chat(ctx context.Context, taskID int64, mainSeg int, as *db.
 		BashEnv:               proxyEnv(m.proxyAddr, m.proxyCACert), // Bash 子命令默认走代理+信任 CA
 		WorkingDir:            mainDir,                              // 本任务工作目录 <workDir>/tasks/<taskID>
 		ToolOutputDir:         cmdOutDir(mainDir),
-		MaxTurns:              m.maxTurns,                             // 0 = unlimited (configurable in agent management)
+		MaxTurns:              m.maxTurns, // 0 = unlimited (configurable in agent management)
+		MaxDuration:           m.runTimeout,
 		Compaction:            compactionConfig(m.compactionWindow()), // long chats stay within the window
 		Todos:                 actool.NewTodoStore(),                  // 会话级临时待办（TodoWrite），纯规划用，退出即丢
 		// 命中预算(步数)→ SDK 跑收尾:向用户输出一句进展总结。Prompt 与收尾轮数可后台编辑(默认 10 轮)。

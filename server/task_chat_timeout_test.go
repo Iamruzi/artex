@@ -10,7 +10,7 @@ import (
 )
 
 func TestNewTaskChatContextDeadline(t *testing.T) {
-	ctx, cancel, release := newTaskChatContext(context.Background(), 20*time.Millisecond)
+	ctx, cancel, release := newTaskChatContext(context.Background(), 20*time.Millisecond, 20*time.Millisecond)
 	defer cancel(agent.AbortChatTurnFinished)
 	defer release()
 
@@ -25,7 +25,7 @@ func TestNewTaskChatContextDeadline(t *testing.T) {
 }
 
 func TestNewTaskChatContextManualStop(t *testing.T) {
-	ctx, cancel, release := newTaskChatContext(context.Background(), time.Hour)
+	ctx, cancel, release := newTaskChatContext(context.Background(), time.Hour, time.Minute)
 	defer release()
 
 	cancel(agent.AbortChatStoppedByUser)
@@ -40,7 +40,7 @@ func TestNewTaskChatContextManualStop(t *testing.T) {
 }
 
 func TestNewTaskChatContextUnlimited(t *testing.T) {
-	ctx, cancel, release := newTaskChatContext(context.Background(), 0)
+	ctx, cancel, release := newTaskChatContext(context.Background(), 0, time.Minute)
 	defer release()
 
 	select {

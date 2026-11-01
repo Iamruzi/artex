@@ -3709,6 +3709,9 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	// Resolve the DB-backed budget outside the shared chat lock so a slow
+	// configuration read cannot block status/stop operations for every chat.
+	mainBudget := time.Duration(s.agentRunSeconds("mainagent")) * time.Second
 	// Admission is serialized with deletion's chat cancellation. Mark every chat
 	// turn busy before its first activity/file write, including rule-mode turns.
 	// If deletion wins the race, the second barrier check rejects this request.
@@ -3727,7 +3730,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	// ordinary agent conversations.  Previously this path only had a manual
 	// cancel context, so a provider/tool loop that kept retrying could leave the
 	// UI in running=true forever even though agents.run_seconds was configured.
-	ctx, cancel, releaseDeadline := newTaskChatContext(s.ctx, time.Duration(s.agentRunSeconds("mainagent"))*time.Second)
+	ctx, cancel, releaseDeadline := newTaskChatContext(s.ctx, mainBudget, taskChatSettlementGrace)
 	ctx = intercept.WithReviewContext(ctx, "", intercept.ReviewBackground{Source: intercept.BackgroundUserMessage, Text: req.Message})
 	s.chatBusy[t.ID] = true
 	s.chatCancel[t.ID] = cancel
@@ -3782,8 +3785,8 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 			taskDir := filepath.Join(s.m.dir, "tasks", t.ID)
 			agentMsg := composeAgentMessage(agentMessage, req.Attachments, taskDir)
 			s.engine.BeginLLMCall(t.ID)
+			defer s.engine.EndLLMCall(t.ID)
 			_, err := ma.Chat(ctx, maTaskID, mainSeg, s.m.Assets(), t.Store, t.Goal, agentMsg, emit, t.Notify, resume, t.NotifyGoal)
-			s.engine.EndLLMCall(t.ID)
 			if err != nil && ctx.Err() == nil {
 				s.engine.emitActivity(t, db.Activity{Worker: "mainagent", Kind: "text", IsError: true, Summary: "（主 Agent 出错：" + err.Error() + "）", MainSeg: segPtr})
 			}
@@ -3798,16 +3801,18 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"reply": reply, "mode": "rule"})
 }
 
-// newTaskChatContext gives a task-detail main-agent turn both cancellation
-// controls it needs: cancel stops it immediately from the UI, while the deadline
-// prevents an unresponsive provider/tool loop from holding chatBusy forever.
-// A non-positive duration keeps the administrator's explicit unlimited setting.
-func newTaskChatContext(parent context.Context, maxDuration time.Duration) (context.Context, context.CancelCauseFunc, context.CancelFunc) {
+const taskChatSettlementGrace = 3 * time.Minute
+
+// The SDK owns the configured soft budget and settlement. This separate parent
+// deadline bounds setup, a stuck model call and settlement itself, without
+// cancelling the context the moment the soft budget expires.
+// A non-positive budget keeps the administrator's explicit unlimited setting.
+func newTaskChatContext(parent context.Context, maxDuration, grace time.Duration) (context.Context, context.CancelCauseFunc, context.CancelFunc) {
 	base, cancel := context.WithCancelCause(parent)
 	if maxDuration <= 0 {
 		return base, cancel, func() {}
 	}
-	ctx, releaseDeadline := context.WithTimeoutCause(base, maxDuration, agent.AbortRunHardTimeout)
+	ctx, releaseDeadline := context.WithTimeoutCause(base, maxDuration+grace, agent.AbortRunHardTimeout)
 	return ctx, cancel, releaseDeadline
 }
 
