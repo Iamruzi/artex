@@ -17,6 +17,7 @@ type Config struct {
 	Disabled         bool `json:"disabled"`
 	MaxConcurrent    int  `json:"max_concurrent_per_server"`
 	WaitMS           int  `json:"admission_wait_ms"`
+	CallTimeoutMS    int  `json:"call_timeout_ms"`
 	FailureThreshold int  `json:"failure_threshold"`
 	CooldownSeconds  int  `json:"cooldown_seconds"`
 }
@@ -24,6 +25,7 @@ type Config struct {
 func (c Config) normalized() Config {
 	c.MaxConcurrent = bounded(c.MaxConcurrent, 2, 16)
 	c.WaitMS = bounded(c.WaitMS, 5000, 30000)
+	c.CallTimeoutMS = bounded(c.CallTimeoutMS, 120000, 3600000)
 	c.FailureThreshold = bounded(c.FailureThreshold, 3, 20)
 	c.CooldownSeconds = bounded(c.CooldownSeconds, 30, 3600)
 	return c
@@ -48,14 +50,16 @@ type state struct {
 }
 
 type Manager struct {
-	config Config
-	mu     sync.Mutex
-	states map[string]*state
-	now    func() time.Time
+	config      Config
+	callTimeout time.Duration
+	mu          sync.Mutex
+	states      map[string]*state
+	now         func() time.Time
 }
 
 func New(c Config) *Manager {
-	return &Manager{config: c.normalized(), states: map[string]*state{}, now: time.Now}
+	c = c.normalized()
+	return &Manager{config: c, callTimeout: time.Duration(c.CallTimeoutMS) * time.Millisecond, states: map[string]*state{}, now: time.Now}
 }
 
 type failureKey struct{}
@@ -93,13 +97,24 @@ func (g *guardedTool) Call(ctx context.Context, in json.RawMessage, tc *actool.T
 	}
 	flag := &atomic.Bool{}
 	completed := false
+	timedOut := false
 	defer func() {
-		healthy := completed && err == nil
-		neutral := !completed || ctx.Err() != nil
+		healthy := completed && err == nil && !timedOut
+		neutral := !completed || ctx.Err() != nil || timedOut
 		finish(flag.Load(), healthy, neutral)
 	}()
-	res, err = g.CoreTool.Call(context.WithValue(ctx, failureKey{}, flag), in, tc)
+	callCtx := context.WithValue(ctx, failureKey{}, flag)
+	cancel := func() {}
+	if g.manager.callTimeout > 0 {
+		callCtx, cancel = context.WithTimeout(callCtx, g.manager.callTimeout)
+	}
+	defer cancel()
+	res, err = g.CoreTool.Call(callCtx, in, tc)
 	completed = true
+	timedOut = errors.Is(callCtx.Err(), context.DeadlineExceeded) && ctx.Err() == nil
+	if timedOut {
+		return actool.Errorf(fmt.Sprintf("mcp_tool_timeout: 单次 MCP 工具调用超过 %s，已取消；请保留已有结果并换用更小的调用或其他路线。", g.manager.callTimeout)), nil
+	}
 	return
 }
 

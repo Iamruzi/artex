@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -188,8 +189,8 @@ func TestConcurrentHandlersNeverExceedLimit(t *testing.T) {
 }
 
 func TestStateRegistryBoundedAndConfigClamped(t *testing.T) {
-	m := New(Config{MaxConcurrent: 999, WaitMS: 999999, FailureThreshold: 999, CooldownSeconds: 99999})
-	if m.config.MaxConcurrent != 16 || m.config.WaitMS != 30000 || m.config.FailureThreshold != 20 || m.config.CooldownSeconds != 3600 {
+	m := New(Config{MaxConcurrent: 999, WaitMS: 999999, CallTimeoutMS: 9999999, FailureThreshold: 999, CooldownSeconds: 99999})
+	if m.config.MaxConcurrent != 16 || m.config.WaitMS != 30000 || m.config.CallTimeoutMS != 3600000 || m.config.FailureThreshold != 20 || m.config.CooldownSeconds != 3600 {
 		t.Fatal("unbounded config")
 	}
 	for i := 0; i < 400; i++ {
@@ -216,6 +217,30 @@ func TestStateRegistryBoundedAndConfigClamped(t *testing.T) {
 	}
 	for _, release := range releases {
 		release(false, true, false)
+	}
+}
+
+func TestCallTimeoutReturnsErrorResultAndReleasesSlot(t *testing.T) {
+	m := New(Config{MaxConcurrent: 1, CallTimeoutMS: 20})
+	slow := m.Wrap("server", fixture(func(ctx context.Context, _ json.RawMessage, _ *actool.ToolContext) (actool.Result, error) {
+		<-ctx.Done()
+		return actool.Result{}, ctx.Err()
+	}))
+	start := time.Now()
+	res, err := slow.Call(t.Context(), nil, nil)
+	if err != nil || !res.IsError || !strings.Contains(res.Flatten(), "mcp_tool_timeout") {
+		t.Fatalf("timeout result = (%q, %v), want mcp_tool_timeout error result", res.Flatten(), err)
+	}
+	if time.Since(start) > time.Second {
+		t.Fatal("MCP call timeout did not return promptly")
+	}
+
+	fast := m.Wrap("server", fixture(func(context.Context, json.RawMessage, *actool.ToolContext) (actool.Result, error) {
+		return actool.Text("ok"), nil
+	}))
+	res, err = fast.Call(t.Context(), nil, nil)
+	if err != nil || res.Flatten() != "ok" {
+		t.Fatalf("timeout leaked the server slot: result=%q err=%v", res.Flatten(), err)
 	}
 }
 
