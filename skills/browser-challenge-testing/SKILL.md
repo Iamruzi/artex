@@ -38,7 +38,7 @@ mcps:
 
 ## 浏览器脚本的超时与恢复
 
-- 优先使用 snapshot、导航和表单工具。调用前读取实际 schema；`ExecuteExtraTool` 的参数放在对象 `params` 中，不要使用字符串 JSON 或把 `function` 放到外层。
+- 优先使用 snapshot、导航和表单工具。浏览器 MCP 工具现在直接提供各自 schema：直接调用 `mcp__browser__browser_navigate` 等工具，并把 `url`、`target` 等参数放在该工具的顶层 JSON 中。不要通过 `ExecuteExtraTool` 调用浏览器工具，也不要把 `function` 放到外层。
 - `browser_evaluate` 必须返回完整结果；异步操作使用 `async`/`await`，每个 Promise 都必须在有限时间内 resolve 或 reject。不要启动后台请求后仅返回“已开始”。
 - 浏览器内的读取请求设置自身超时，例如 `fetch(url, {signal: AbortSignal.timeout(10000)})`，并捕获失败；只包装 `Promise.race` 不会取消底层请求。复用已有结果，避免重复发同一批请求。
 - ARTEX 默认在单次 MCP 调用超过 120 秒后停止等待。收到 `mcp_tool_timeout` 时，远端操作可能仍在执行，先核对当前页面和请求状态，不能盲目重放提交或其他状态修改操作。

@@ -75,6 +75,7 @@ func wireAgentAugment(pg *db.DB, skillDir, dataDir string, hostTools func() ([]a
 		var closers []io.Closer
 		serverTools := map[string][]string{} // server name → its tool names
 		var allNames, globalNames []string
+		var directBrowserGlobalNames []string
 		globalSet := map[string]bool{}
 		{
 			mcpIDs, _ := pg.AgentVisible(a.ID, "mcp")
@@ -117,8 +118,19 @@ func wireAgentAugment(pg *db.DB, skillDir, dataDir string, hostTools func() ([]a
 				for _, t := range ts {
 					t = mcpGate.Wrap(mcpIsolationKey(m), t)
 					extra = append(extra, t)
-					allNames = append(allNames, t.Name())
 					serverTools[m.Name] = append(serverTools[m.Name], t.Name())
+					// Browser tools are exposed with their own schemas. Some models
+					// repeatedly flatten ExecuteExtraTool's nested params, so keeping
+					// browser calls deferred makes a recoverable call loop forever.
+					// Their skill gate is still enforced by directBrowserTool below.
+					if m.Name == browserMCPName {
+						globalSet[t.Name()] = true // already visible; no deferred reveal
+						if directVisible && !skillGated {
+							directBrowserGlobalNames = append(directBrowserGlobalNames, t.Name())
+						}
+						continue
+					}
+					allNames = append(allNames, t.Name())
 					if directVisible && !skillGated {
 						// directly visible and not gated → available from session start
 						globalNames = append(globalNames, t.Name())
@@ -131,14 +143,26 @@ func wireAgentAugment(pg *db.DB, skillDir, dataDir string, hostTools func() ([]a
 
 		// Shared call-gate: global MCP tools are unlocked from the start; skill-gated
 		// ones are unlocked when their skill loads (or replayed from history — C2).
+		// Keep browser calls out of ExecuteExtraTool's gate even after Skill
+		// loads: only the direct, schema-bearing browser tools are callable.
 		unlock := actool.NewUnlockSet(globalNames...)
+		browserUnlock := actool.NewUnlockSet(directBrowserGlobalNames...)
+		for i, t := range extra {
+			if strings.HasPrefix(t.Name(), "mcp__"+browserMCPName+"__") {
+				extra[i] = &directBrowserTool{CoreTool: t, unlock: browserUnlock}
+			}
+		}
 		unlockSkill := func(skillName string) {
 			if reg == nil {
 				return
 			}
 			if s, ok := reg.Get(skillName); ok {
 				for _, srv := range s.MCPs {
-					unlock.Add(serverTools[srv]...)
+					if srv == browserMCPName {
+						browserUnlock.Add(serverTools[srv]...)
+					} else {
+						unlock.Add(serverTools[srv]...)
+					}
 				}
 			}
 		}
@@ -216,6 +240,21 @@ func browserRunProfilePath(dataDir, agentKey string, runInfo agent.RunInfo) stri
 		name = fmt.Sprintf("session-%x", digest[:8])
 	}
 	return filepath.Join(dataDir, "browser-profiles", name)
+}
+
+// directBrowserTool keeps the existing skill gate while advertising the browser
+// tool's real input schema to the model. The gate is checked at call time because
+// Skill can unlock the browser after the session has already been assembled.
+type directBrowserTool struct {
+	actool.CoreTool
+	unlock *actool.UnlockSet
+}
+
+func (t *directBrowserTool) Call(ctx context.Context, in json.RawMessage, tc *actool.ToolContext) (actool.Result, error) {
+	if t.unlock != nil && !t.unlock.Has(t.Name()) {
+		return actool.Errorf("Error: tool " + t.Name() + " is not unlocked in this session — load the skill that provides it first."), nil
+	}
+	return t.CoreTool.Call(ctx, in, tc)
 }
 
 // Hash configuration so a changed endpoint/credential has independent health.
